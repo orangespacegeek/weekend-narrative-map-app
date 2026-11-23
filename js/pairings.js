@@ -4,6 +4,7 @@
   let entrants = [];
   let rounds = [];
   let pairings = [];
+  let slots = [];
 
   function nameOf(id) {
     const player = entrants.find((row) => Number(row.player_id) === Number(id));
@@ -55,8 +56,26 @@
         else line.textContent = nameOf(pairing.loyalist_id) + " vs " + nameOf(pairing.traitor_id);
         card.appendChild(line);
       }
+      if (pairing.kind === "bye") {
+        const bye = document.createElement("p");
+        bye.textContent = "No table";
+        card.appendChild(bye);
+      } else if (SH.isLoggedIn()) {
+        card.appendChild(tableSelect(pairing));
+      } else if (pairing.table) {
+        const where = document.createElement("p");
+        where.textContent = "Table " + pairing.table + placeText(pairing);
+        card.appendChild(where);
+      }
       const meta = document.createElement("p");
-      meta.textContent = [pairing.state, pairing.locked ? "locked" : ""].filter(Boolean).join(" · ");
+      const booked = pairing.table && pairings.some((other) => {
+        return other.pairing_id !== pairing.pairing_id &&
+          String(other.round_id) === String(pairing.round_id) &&
+          other.table === pairing.table;
+      });
+      meta.textContent = [pairing.state, pairing.locked ? "locked" : "", booked ? "Table " + pairing.table + " is booked twice" : ""]
+        .filter(Boolean)
+        .join(" · ");
       card.appendChild(meta);
       listEl.appendChild(card);
     });
@@ -96,6 +115,57 @@
     return label;
   }
 
+  function placeText(pairing) {
+    const slot = slots.find((item) => item.table === pairing.table);
+    if (!slot) return "";
+    return " · " + slot.area + (slot.scenario ? " · " + slot.scenario : "");
+  }
+
+  function tableSelect(pairing) {
+    const label = document.createElement("label");
+    label.className = "field";
+    label.append(document.createTextNode("Table"));
+    const select = document.createElement("select");
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "Unassigned";
+    select.appendChild(blank);
+    slots.forEach((slot) => {
+      const opt = document.createElement("option");
+      opt.value = slot.table;
+      opt.textContent = slot.table + " · " + slot.area + (slot.scenario ? " · " + slot.scenario : "");
+      if (pairing.table === slot.table) opt.selected = true;
+      select.appendChild(opt);
+    });
+    if (pairing.table && !slots.some((slot) => slot.table === pairing.table)) {
+      const extra = document.createElement("option");
+      extra.value = pairing.table;
+      extra.textContent = pairing.table;
+      extra.selected = true;
+      select.appendChild(extra);
+    }
+    select.addEventListener("change", async () => {
+      const table = select.value || null;
+      const taken = table && pairings.some((other) => {
+        return other.pairing_id !== pairing.pairing_id &&
+          String(other.round_id) === String(pairing.round_id) &&
+          other.table === table;
+      });
+      if (taken) msg.textContent = "Table " + table + " is already booked.";
+      try {
+        const saved = await SH.save("pairings", { ...pairing, table });
+        const warning = saved.warnings && saved.warnings[0];
+        msg.textContent = warning || "Table saved.";
+        await load();
+      } catch (err) {
+        msg.textContent = err.message || "Table was not saved";
+        select.value = pairing.table || "";
+      }
+    });
+    label.appendChild(select);
+    return label;
+  }
+
   function fillRounds() {
     const select = document.getElementById("round-select");
     if (!select) return;
@@ -108,7 +178,25 @@
       select.appendChild(opt);
     });
     if (current) select.value = current;
-    select.onchange = render;
+    select.onchange = () => {
+      render();
+      updatePrintLink();
+    };
+  }
+
+  function updatePrintLink() {
+    const link = document.getElementById("print-round");
+    const round = rounds.find((item) => String(item.round_id) === String(selectedRound()));
+    const rows = pairings.filter((pairing) => round && String(pairing.round_id) === String(round.round_id));
+    const published = rows.length > 0 && rows.every((pairing) => pairing.state === "published");
+    if (!link) return;
+    if (!round || !published) {
+      link.hidden = true;
+      return;
+    }
+    link.hidden = false;
+    const base = "/print/round/" + encodeURIComponent(round.number);
+    link.href = SH.isLoggedIn() ? base + "/organiser" : base;
   }
 
   document.getElementById("generate").addEventListener("click", async () => {
@@ -153,8 +241,28 @@
       rounds = await (await fetch("/api/rounds", { cache: "no-store" })).json();
       pairings = await (await fetch("/api/pairings", { cache: "no-store" })).json();
     }
+    const areaRes = await fetch("/api/areas", { cache: "no-store" });
+    const areas = areaRes.ok ? await areaRes.json() : [];
+    slots = slotsFrom(areas);
     fillRounds();
     render();
+    updatePrintLink();
+  }
+
+  function slotsFrom(areas) {
+    const out = [];
+    const seen = new Set();
+    areas.slice().sort((a, b) => Number(a.area_id) - Number(b.area_id)).forEach((area) => {
+      let names = (area.tables || []).map((table) => String(table).trim()).filter(Boolean);
+      if (!names.length && area.scenario) names = [String(area.scenario).trim().slice(0, 16)];
+      names.forEach((table) => {
+        const label = table.slice(0, 16);
+        if (!label || seen.has(label)) return;
+        seen.add(label);
+        out.push({ table: label, area: area.name, scenario: area.scenario || null });
+      });
+    });
+    return out;
   }
 
   load().catch((err) => {
