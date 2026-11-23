@@ -7,4 +7,5 @@ dist/
 # Live credentials. The server creates these on first boot.
 data/accounts.json
 data/sessions.json
+data/maps/
 data/*.tmp-*

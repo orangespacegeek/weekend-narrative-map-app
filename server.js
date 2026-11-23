@@ -122,6 +122,8 @@ const PUBLIC_PAGES = new Set([
   "index.html",
   "login.html",
   "campaign_map.html",
+  "area-map.html",
+  "map-editor.html",
   "systems.html",
   "games.html"
 ]);
@@ -540,6 +542,7 @@ function assertCsrf(req) {
 }
 
 const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES) || 1024 * 1024;
+const MAP_IMAGE_MAX_BYTES = Number(process.env.MAP_IMAGE_MAX_BYTES) || 8 * 1024 * 1024;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -580,6 +583,85 @@ function readBody(req) {
       fail(err);
     });
   });
+}
+
+function readRawBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    function fail(err) {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    }
+    req.on("data", (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > limit) {
+        fail(httpError(413, "Map image is too large"));
+        setImmediate(() => {
+          if (!req.destroyed) req.destroy();
+        });
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (settled) return;
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on("error", (err) => {
+      if (settled) return;
+      if (err && (err.code === "ECONNRESET" || err.code === "EPIPE")) return;
+      fail(err);
+    });
+  });
+}
+
+function sniffMapImage(buf) {
+  if (!buf || buf.length < 8) return null;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "png";
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpeg";
+  return null;
+}
+
+function pngSize(buf) {
+  if (buf.length < 24 || buf.toString("ascii", 12, 16) !== "IHDR") return null;
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+}
+
+function jpegSize(buf) {
+  let i = 2;
+  while (i + 8 < buf.length) {
+    if (buf[i] !== 0xff) return null;
+    const marker = buf[i + 1];
+    if (marker === 0xd8 || marker === 0x01) {
+      i += 2;
+      continue;
+    }
+    if (marker === 0xd9 || marker === 0xda) return null;
+    const len = buf.readUInt16BE(i + 2);
+    if (len < 2 || i + 2 + len > buf.length) return null;
+    if (marker >= 0xc0 && marker <= 0xc3) {
+      return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+    }
+    i += 2 + len;
+  }
+  return null;
+}
+
+function mapImageDir() {
+  return path.join(DATA, "maps");
+}
+
+function storedMapPath(file) {
+  if (file !== "event-map.png" && file !== "event-map.jpg") return null;
+  const dir = mapImageDir();
+  const resolved = path.resolve(dir, file);
+  if (!resolved.startsWith(path.resolve(dir) + path.sep)) return null;
+  return resolved;
 }
 
 function requireAdmin(req) {
@@ -1234,18 +1316,82 @@ async function handleEvent(req, res, method) {
   return send(res, 405, { error: "Method not allowed" });
 }
 
+function presentMap(map) {
+  const control = readList("control.json");
+  const rounds = readList("rounds.json");
+  const image = map.image ? { ...map.image, url: "/api/map/image" } : null;
+  return {
+    image,
+    areas: (map.areas || []).map((area) => ({
+      ...area,
+      controller: model.currentAreaController(area.area_id, control, rounds)
+    }))
+  };
+}
+
 async function handleMapImage(req, res, method) {
-  if (method === "GET") return send(res, 200, readMapFile());
+  if (method === "GET") return send(res, 200, presentMap(readMapFile()));
   if (method !== "PUT") return send(res, 405, { error: "Method not allowed" });
   const gate = requireAdmin(req);
   if (!gate.ok) return send(res, gate.status, { error: gate.error });
   const body = (await readBody(req)) || {};
-  const image = model.validateImage(body.image);
-  if (!image.ok) return send(res, 400, { error: image.error });
   const map = readMapFile();
-  map.image = image.value;
+  if (Object.prototype.hasOwnProperty.call(body, "image")) {
+    const image = model.validateImage(body.image);
+    if (!image.ok) return send(res, 400, { error: image.error });
+    map.image = image.value;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "areas")) {
+    const areas = model.validateAreaSet(body.areas);
+    if (!areas.ok) return send(res, 400, { error: areas.error });
+    map.areas = areas.value;
+    syncSystemsFromAreas(map.areas);
+  }
+  if (!Object.prototype.hasOwnProperty.call(body, "image") && !Object.prototype.hasOwnProperty.call(body, "areas")) {
+    return send(res, 400, { error: "Send an image reference, a list of areas, or both" });
+  }
   writeMapFile(map);
-  return send(res, 200, map);
+  return send(res, 200, presentMap(map));
+}
+
+async function handleMapUpload(req, res, method) {
+  if (method === "GET") {
+    const map = readMapFile();
+    const file = map.image && map.image.file;
+    const fp = storedMapPath(file);
+    if (!fp || !fs.existsSync(fp)) {
+      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
+      res.end("No map image");
+      return;
+    }
+    const ext = path.extname(fp).toLowerCase();
+    res.writeHead(200, {
+      "Content-Type": ext === ".png" ? "image/png" : "image/jpeg",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff"
+    });
+    fs.createReadStream(fp).pipe(res);
+    return;
+  }
+  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  const buf = await readRawBody(req, MAP_IMAGE_MAX_BYTES);
+  const kind = sniffMapImage(buf);
+  if (!kind) return send(res, 400, { error: "Upload a PNG or JPEG map image" });
+  const size = kind === "png" ? pngSize(buf) : jpegSize(buf);
+  if (!size || !size.width || !size.height) return send(res, 400, { error: "Could not read the image size" });
+  const filename = kind === "png" ? "event-map.png" : "event-map.jpg";
+  const dir = mapImageDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const dest = storedMapPath(filename);
+  fs.writeFileSync(dest, buf);
+  const other = storedMapPath(kind === "png" ? "event-map.jpg" : "event-map.png");
+  if (other && fs.existsSync(other)) fs.unlinkSync(other);
+  const map = readMapFile();
+  map.image = { file: filename, width: size.width, height: size.height };
+  writeMapFile(map);
+  return send(res, 201, presentMap(map));
 }
 
 async function handleAreas(req, res, method, idPart) {
@@ -1541,7 +1687,7 @@ async function handlePublic(req, res, parts, method) {
     const event = readJsonFile("event.json", null);
     return send(res, 200, model.publicEvent(event || ensureEvent()));
   }
-  if (collection === "map") return send(res, 200, readMapFile());
+  if (collection === "map") return send(res, 200, presentMap(readMapFile()));
   return send(res, 404, { error: "Unknown public collection" });
 }
 
@@ -1560,6 +1706,7 @@ async function handleApi(req, res, pathname) {
   }
 
   if (parts[0] === "event" && parts.length === 1) return handleEvent(req, res, method);
+  if (parts[0] === "map" && parts[1] === "image" && parts.length === 2) return handleMapUpload(req, res, method);
   if (parts[0] === "map" && parts.length === 1) return handleMapImage(req, res, method);
   if (parts[0] === "areas") return handleAreas(req, res, method, parts[1]);
   if (parts[0] === "players") return handlePlayers(req, res, method, parts[1]);

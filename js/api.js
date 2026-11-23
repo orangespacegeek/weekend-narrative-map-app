@@ -214,6 +214,20 @@
     return request("/api/auth/set-password", { method: "POST", body: JSON.stringify(body || {}) });
   }
 
+  async function uploadMap(file) {
+    await probe();
+    return request("/api/map/image", {
+      method: "POST",
+      body: file,
+      headers: { "Content-Type": (file && file.type) || "application/octet-stream" }
+    });
+  }
+
+  async function saveAreas(areas) {
+    await probe();
+    return request("/api/map", { method: "PUT", body: JSON.stringify({ areas: areas || [] }) });
+  }
+
   function isAdminRole(role) {
     return role === "event_admin" || role === "campaign_admin";
   }
@@ -314,6 +328,8 @@
     login,
     logout,
     setPassword,
+    uploadMap,
+    saveAreas,
     confirmGame: (id, as) => postAction("/api/games/" + encodeURIComponent(id) + "/confirm", { as: as || "admin" }),
     disputeGame: (id, note) => postAction("/api/games/" + encodeURIComponent(id) + "/dispute", { note: note || "" }),
     voidGame: (id) => postAction("/api/games/" + encodeURIComponent(id) + "/void", {}),

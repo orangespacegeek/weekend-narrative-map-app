@@ -77,6 +77,8 @@ Each later change is its own small PR.
 - `lib/model.js` — event data model and validation
 - [docs/data-model.md](docs/data-model.md) — store layout
 - `index.html` — home
+- `area-map.html` — public map on the uploaded image, shaded by who holds each area
+- `map-editor.html` — admin zone editor
 - `campaign_map.html`, `js/map.js` — node-and-route map
 - `systems.html` — node and route editor
 - `games.html` — results and opponent confirmation
