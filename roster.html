@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0e0e18" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>Weekend Event – Roster</title>
+  <link rel="stylesheet" href="css/site-nav.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <a class="brand" href="index.html">
+        <span class="titles">
+          <span class="brand-kicker">Narrative map</span>
+          <h1>Roster</h1>
+        </span>
+      </a>
+      <div class="header-end">
+        <span id="nav-auth"><a class="nav-login" href="login.html">Log in</a></span>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-menu">
+      <a href="index.html">Home</a>
+      <a href="area-map.html">Map</a>
+      <a href="games.html">Results</a>
+      <a href="roster.html">Roster</a>
+      <a href="map-editor.html" data-role="campaign_admin">Edit map</a>
+      <a href="campaign_map.html" data-role="campaign_admin">Node map</a>
+      <a href="systems.html" data-role="campaign_admin">Nodes</a>
+      <button type="button" id="nav-logout" hidden>Log out</button>
+    </nav>
+  </header>
+  <main class="page">
+    <p class="lede">Display names, faction, and army. Contact details are not kept.</p>
+    <div id="admin-tools" data-role="campaign_admin" hidden>
+      <form id="entrant-form" class="card form-grid">
+        <h2 id="form-title">Add entrant</h2>
+        <label class="field">Display name
+          <input name="display_name" maxlength="40" required autocomplete="off" />
+        </label>
+        <label class="field">Faction
+          <select name="faction">
+            <option>Loyalist</option>
+            <option>Traitor</option>
+          </select>
+        </label>
+        <label class="field">Army
+          <input name="army" maxlength="80" autocomplete="off" />
+        </label>
+        <label class="check-list"><span><input name="dropped" type="checkbox" /> Dropped</span></label>
+        <div class="button-row">
+          <button type="submit" id="save-entrant">Add</button>
+          <button type="button" class="ghost" id="cancel-edit" hidden>Cancel</button>
+        </div>
+        <p id="form-msg" class="msg" role="status"></p>
+      </form>
+      <form id="import-form" class="card form-grid" style="margin-top:0.75rem">
+        <h2>Paste roster</h2>
+        <p class="lede">One entrant per line: name, faction, army. A header row is optional.</p>
+        <label class="field">CSV or lines
+          <textarea name="text" placeholder="L-01, Loyalist, Iron Hands"></textarea>
+        </label>
+        <button type="submit">Import</button>
+        <p id="import-msg" class="msg" role="status"></p>
+      </form>
+      <form id="special-form" class="card form-grid" style="margin-top:0.75rem">
+        <h2>Apex and Grudge</h2>
+        <p class="lede">Locked before the round is paired. Loyalist against Traitor, no rematches, and nobody twice in the same round.</p>
+        <label class="field">Round
+          <select name="round_id" id="round-select"></select>
+        </label>
+        <label class="field">Kind
+          <select name="kind">
+            <option value="apex">Apex</option>
+            <option value="grudge">Grudge</option>
+          </select>
+        </label>
+        <label class="field">Loyalist
+          <select name="loyalist_id" id="loyal-select"></select>
+        </label>
+        <label class="field">Traitor
+          <select name="traitor_id" id="traitor-select"></select>
+        </label>
+        <button type="submit">Lock match</button>
+        <p id="special-msg" class="msg" role="status"></p>
+        <div id="special-list" class="stack"></div>
+      </form>
+    </div>
+    <div id="list" class="stack" style="margin-top:0.9rem"></div>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/roster.js"></script>
+  <script>SH.applyNavPermissions();</script>
+</body>
+</html>

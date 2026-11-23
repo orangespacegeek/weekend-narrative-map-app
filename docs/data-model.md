@@ -10,7 +10,7 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 
 - 4 or 5 rounds. Every game is Loyalist against Traitor.
 - Campaign points: win 3, tie 1, loss 0. A bye is a win worth at least 10 VP for the player who sits out.
-- No rematches anywhere. A normal, Apex, or Grudge pairing is rejected when those two entrants have already played each other. Apex and Grudge matches stay locked.
+- No rematches anywhere. A normal, Apex, or Grudge pairing is rejected when those two entrants have already played each other. An entrant also cannot sit in two matches in the same round. Apex and Grudge matches stay locked. A dropped entrant is left out of later pairings; their earlier matches stay.
 - Pairings and rounds move draft, then approved, then published. A record cannot be published straight from draft.
 - Area control is decided each round from the campaign points scored in that area in that round. The side with more points takes it. A tie keeps the previous holder, or stays neutral if nobody held it. Earlier rounds are not added in. The history of each round is kept for the narrative log.
 - The faction winner is the side holding the most areas at the end. If both sides hold the same number, the side with more total campaign points wins. If that is also equal, the event is tied. Best general is the top Loyalist and the top Traitor, ordered by campaign points, then VP difference, then strength of schedule.
