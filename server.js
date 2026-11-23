@@ -102,6 +102,7 @@ const SESSION_DAYS = 14;
 const PUBLISHED_ADMIN_PASSWORD = "change-me";
 
 const model = require("./lib/model");
+const swiss = require("./lib/swiss");
 
 // systems.json is still the seed file and the shape the current map page edits.
 // map.json is the event area list (area_id, routes, tables, scenario).
@@ -125,6 +126,7 @@ const PUBLIC_PAGES = new Set([
   "area-map.html",
   "map-editor.html",
   "roster.html",
+  "pairings.html",
   "systems.html",
   "games.html"
 ]);
@@ -1557,6 +1559,105 @@ async function handleRounds(req, res, method, idPart) {
   return send(res, 405, { error: "Method not allowed" });
 }
 
+function byeResult(pairing) {
+  const loyal = !!pairing.loyalist_id;
+  return {
+    pairing_id: pairing.pairing_id,
+    round_id: pairing.round_id,
+    loyalist_vp: loyal ? model.SCORING.bye_vp : null,
+    traitor_vp: loyal ? null : model.SCORING.bye_vp,
+    outcome: "bye",
+    confirmation: "confirmed",
+    reported_by: "admin",
+    confirmed_by: "admin",
+    campaign_points: loyal ? { loyalist: model.SCORING.win, traitor: 0 } : { loyalist: 0, traitor: model.SCORING.win }
+  };
+}
+
+async function handleGenerateRound(req, res, method, idPart) {
+  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  const body = (await readBody(req)) || {};
+  const roundId = Number(idPart);
+  const rounds = readList("rounds.json");
+  if (!rounds.some((round) => Number(round.round_id) === roundId)) return send(res, 404, { error: "Round not found" });
+  let pairings = readList("pairings.json");
+  const mine = pairings.filter((pairing) => Number(pairing.round_id) === roundId);
+  if (mine.some((pairing) => pairing.state === "published")) {
+    return send(res, 409, { error: "Published pairings stay. Clear them before generating again." });
+  }
+  const generated = swiss.generateSwiss({
+    players: readList("players.json"),
+    pairings,
+    results: readList("results.json"),
+    roundId,
+    seed: body.seed
+  });
+  if (!generated.ok) return send(res, 409, { error: generated.error, warnings: generated.warnings || [] });
+  const removed = new Set(
+    mine.filter((pairing) => pairing.kind !== "apex" && pairing.kind !== "grudge").map((pairing) => Number(pairing.pairing_id))
+  );
+  pairings = pairings.filter((pairing) => !removed.has(Number(pairing.pairing_id)));
+  let results = readList("results.json").filter((result) => !removed.has(Number(result.pairing_id)));
+  const made = [];
+  generated.byes.forEach((player) => {
+    const pairing = {
+      pairing_id: nextId(pairings, "pairing_id"),
+      round_id: roundId,
+      table: null,
+      area_id: null,
+      kind: "bye",
+      locked: false,
+      state: "draft",
+      loyalist_id: player.faction === "Loyalist" ? player.player_id : null,
+      traitor_id: player.faction === "Traitor" ? player.player_id : null
+    };
+    pairings.push(pairing);
+    const result = byeResult(pairing);
+    result.result_id = nextId(results, "result_id");
+    results.push(result);
+    made.push(pairing);
+  });
+  generated.pairs.forEach(([loyalist, traitor]) => {
+    const pairing = {
+      pairing_id: nextId(pairings, "pairing_id"),
+      round_id: roundId,
+      table: null,
+      area_id: null,
+      kind: "normal",
+      locked: false,
+      state: "draft",
+      loyalist_id: loyalist.player_id,
+      traitor_id: traitor.player_id
+    };
+    pairings.push(pairing);
+    made.push(pairing);
+  });
+  writeJsonFile("pairings.json", pairings);
+  writeJsonFile("results.json", results);
+  return send(res, 200, { pairings: made, warnings: generated.warnings, standings: generated.standings });
+}
+
+async function handleRoundState(req, res, method, idPart, target) {
+  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  const roundId = Number(idPart);
+  const pairings = readList("pairings.json");
+  const mine = pairings.filter((pairing) => Number(pairing.round_id) === roundId);
+  if (!mine.length) return send(res, 404, { error: "This round has no pairings" });
+  if (target === "published" && mine.some((pairing) => pairing.state === "draft")) {
+    return send(res, 409, { error: "Approve the draft before publishing" });
+  }
+  mine.forEach((pairing) => {
+    if (target === "approved" && pairing.state === "draft") pairing.state = "approved";
+    if (target === "published" && pairing.state === "approved") pairing.state = "published";
+  });
+  writeJsonFile("pairings.json", pairings);
+  return send(res, 200, { pairings: mine });
+}
+
 async function handlePairings(req, res, method, idPart) {
   const list = readList("pairings.json");
   if (method === "GET") {
@@ -1726,6 +1827,9 @@ async function handleApi(req, res, pathname) {
   if (parts[0] === "map" && parts.length === 1) return handleMapImage(req, res, method);
   if (parts[0] === "areas") return handleAreas(req, res, method, parts[1]);
   if (parts[0] === "players") return handlePlayers(req, res, method, parts[1]);
+  if (parts[0] === "rounds" && parts[2] === "pair" && parts.length === 3) return handleGenerateRound(req, res, method, parts[1]);
+  if (parts[0] === "rounds" && parts[2] === "approve" && parts.length === 3) return handleRoundState(req, res, method, parts[1], "approved");
+  if (parts[0] === "rounds" && parts[2] === "publish" && parts.length === 3) return handleRoundState(req, res, method, parts[1], "published");
   if (parts[0] === "rounds") return handleRounds(req, res, method, parts[1]);
   if (parts[0] === "pairings") return handlePairings(req, res, method, parts[1]);
   if (parts[0] === "results") return handleEventResults(req, res, method, parts[1], parts[2]);
