@@ -10,10 +10,10 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 
 - 4 or 5 rounds. Every game is Loyalist against Traitor.
 - Campaign points: win 3, tie 1, loss 0. A bye is a win worth at least 10 VP for the player who sits out.
-- Swiss pairing must not repeat a pair. Apex and grudge matches are entered by the organiser, stay locked, and follow the same no-rematch rule.
+- No rematches anywhere. A normal, Apex, or Grudge pairing is rejected when those two entrants have already played each other. Apex and Grudge matches stay locked.
 - Pairings and rounds move draft, then approved, then published. A record cannot be published straight from draft.
-- Area control uses campaign points scored in that area, added up across rounds. The side with more points holds it. A tie keeps the previous holder, or stays neutral if nobody held it. A tie does not go to Traitor.
-- The faction winner is the side that holds the most areas. Best general is the top Loyalist and the top Traitor, ordered by campaign points, then VP difference, then strength of schedule.
+- Area control is decided each round from the campaign points scored in that area in that round. The side with more points takes it. A tie keeps the previous holder, or stays neutral if nobody held it. Earlier rounds are not added in. The history of each round is kept for the narrative log.
+- The faction winner is the side holding the most areas at the end. If both sides hold the same number, the side with more total campaign points wins. If that is also equal, the event is tied. Best general is the top Loyalist and the top Traitor, ordered by campaign points, then VP difference, then strength of schedule.
 - Each event has an `event_code`. Each round has a `qr_token`. Both stay off public responses. Phone reporting is a later PR.
 
 ## Files
@@ -22,24 +22,24 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 | --- | --- |
 | `event.json` | Name, blurb, code, 4 or 5 rounds, scoring, tiebreak order |
 | `map.json` | Optional image file name, and the areas |
-| `players.json` | Entrants: display name, faction, `dropped`, `bye` |
+| `players.json` | Entrants: display name, faction, optional army, `dropped`, `bye` |
 | `rounds.json` | Round number, state, QR token |
 | `pairings.json` | Table, area, kind, locked, state, the two entrants |
 | `results.json` | VP, outcome, confirmation, campaign points |
-| `control.json` | Per round, per area: points that round, running totals, holder |
+| `control.json` | One row per round per area: that round's points, the previous holder, and the holder after the round |
 | `systems.json` | The same areas in the old `sys_id` / `sys_links` shape, for the current map page |
 | `games.json` | The interim result board from the first PR. New games belong in `results.json` |
 | `accounts.json`, `sessions.json` | The event admin only. Not in git |
 
 An area has `area_id`, `name`, `shape` (`point` or `outline`), `points`, `x`, `y`, `routes` (other area ids), `tables`, `scenario`, and `notes`. A point is one coordinate. An outline needs at least three. `x` and `y` are the position on the current SVG map. The image file itself is not uploaded here. `image.file` is only a name, with no folders in it.
 
-An entrant has a display name and a faction. There is no contact field, real name, email, or Discord id. `dropped` takes them out of later pairings. `bye` is the organiser's flag that this entrant should receive a bye when the round is built. The public entrant list omits that flag.
+An entrant has a display name, a faction, and an optional `army` (the legion or army name, free text). `army` is public, next to the display name and faction. There is no contact field, real name, email, or Discord id. `dropped` takes them out of later pairings. `bye` is the organiser's flag that this entrant should receive a bye when the round is built. The public entrant list omits that flag.
 
 A pairing `kind` is `normal`, `apex`, `grudge`, or `bye`. Apex and grudge are always `locked`. A bye names one entrant. Any other pairing names one Loyalist and one Traitor. `table` and `area_id` can wait until the organiser assigns them. `state` is `draft`, `approved`, or `published`. Visitors only receive published pairings.
 
 A result belongs to one pairing. The outcome has to match the VP: higher wins, equal is a tie. Confirmation is `pending`, `confirmed`, or `disputed`. Opponent confirmation is only valid when one of the two sides reported the result. A bye is stored as confirmed by the admin.
 
-`control.json` stores the points earned in that area in that round (`loyalist_points`, `traitor_points`) and the running totals. The holder is checked against those totals and the previous holder. Posting Traitor as the holder of a 0–0 area is rejected.
+`control.json` stores one row per area per round: `loyalist_points` and `traitor_points` scored there that round, `previous_controller`, and `controller`. The holder is checked against that round only. A 3–0 round takes the area even if the other side led it before. A 0–0 or 3–3 round keeps the previous holder, and a tied area that nobody has held stays neutral. Posting Traitor as the holder of a tied area is rejected.
 
 ## Admin API
 

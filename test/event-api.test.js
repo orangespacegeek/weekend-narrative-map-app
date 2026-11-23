@@ -151,6 +151,7 @@ test("admin CRUD covers entrants, locked matches, results, and area control", as
     const loyal = await send(ctx.base, headers, "POST", "/api/players", {
       display_name: "L-01",
       faction: "Loyalist",
+      army: "Iron Hands",
       bye: true
     });
     const traitor = await send(ctx.base, headers, "POST", "/api/players", {
@@ -164,6 +165,8 @@ test("admin CRUD covers entrants, locked matches, results, and area control", as
 
     const pub = await send(ctx.base, {}, "GET", "/api/public/entrants");
     assert.equal(pub.json[0].display_name, "L-01");
+    assert.equal(pub.json[0].army, "Iron Hands");
+    assert.equal(pub.json[0].faction, "Loyalist");
     assert.equal(pub.json[0].bye, undefined);
     assert.equal(JSON.stringify(pub.json).includes("@"), false);
 
@@ -270,14 +273,24 @@ test("admin CRUD covers entrants, locked matches, results, and area control", as
     });
     assert.equal(control.status, 201, JSON.stringify(control.json));
     assert.equal(control.json.controller, "Loyalist");
-    const flip = await send(ctx.base, headers, "POST", "/api/control", {
-      round_id: round.round_id,
+    const round2 = (await send(ctx.base, headers, "POST", "/api/rounds", { number: 2 })).json;
+    const taken = await send(ctx.base, headers, "POST", "/api/control", {
+      round_id: round2.round_id,
       area_id: 1,
       loyalist_points: 0,
-      traitor_points: 0,
+      traitor_points: 3
+    });
+    assert.equal(taken.status, 201, JSON.stringify(taken.json));
+    assert.equal(taken.json.controller, "Traitor");
+    assert.equal(taken.json.previous_controller, "Loyalist");
+    const tied = await send(ctx.base, headers, "POST", "/api/control", {
+      round_id: round2.round_id,
+      area_id: 1,
+      loyalist_points: 1,
+      traitor_points: 1,
       controller: "Traitor"
     });
-    assert.equal(flip.status, 400);
+    assert.equal(tied.status, 400);
   } finally {
     await ctx.stop();
     fs.rmSync(dataDir, { recursive: true, force: true });

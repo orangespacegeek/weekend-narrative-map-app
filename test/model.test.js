@@ -31,7 +31,10 @@ test("campaign points, bye minimum, and area control follow the event rules", ()
   assert.equal(model.nextController("neutral", 0, 0), "neutral");
   assert.equal(model.nextController("Loyalist", 3, 3), "Loyalist");
   assert.equal(model.nextController("neutral", 0, 3), "Traitor");
-  assert.equal(model.factionLeader(["Loyalist", "Loyalist", "neutral", "Traitor"]), "Loyalist");
+  assert.equal(model.factionLeader(["Loyalist", "Loyalist", "neutral", "Traitor"], { loyalist: 1, traitor: 20 }), "Loyalist");
+  assert.equal(model.factionLeader(["Loyalist", "Traitor"], { loyalist: 9, traitor: 4 }), "Loyalist");
+  assert.equal(model.factionLeader(["Loyalist", "Traitor"], { loyalist: 4, traitor: 9 }), "Traitor");
+  assert.equal(model.factionLeader(["Loyalist", "Traitor"], { loyalist: 6, traitor: 6 }), null);
   assert.equal(model.factionLeader(["Loyalist", "Traitor"]), null);
 });
 
@@ -46,35 +49,42 @@ test("standings sort by campaign points, then VP difference, then strength of sc
   assert.deepEqual(rows.map((row) => row.id), ["top", "vp", "sos", "low"]);
 });
 
-test("a tied area keeps the previous holder instead of handing it to Traitor", () => {
+test("area control is decided from this round's points, and a tie keeps the previous holder", () => {
+  const ctx = { rounds: [{ round_id: 1 }, { round_id: 2 }], areas: [{ area_id: 1 }] };
   const first = model.validateControl(
     { round_id: 1, area_id: 1, loyalist_points: 3, traitor_points: 0, previous_controller: "neutral" },
-    { rounds: [{ round_id: 1 }], areas: [{ area_id: 1 }], control: [] }
+    { ...ctx, control: [] }
   );
   assert.equal(first.ok, true, first.error);
   assert.equal(first.value.controller, "Loyalist");
-  assert.equal(first.value.loyalist_total, 3);
+  assert.equal(first.value.loyalist_total, undefined);
 
-  const second = model.validateControl(
-    {
-      round_id: 2,
-      area_id: 1,
-      loyalist_points: 0,
-      traitor_points: 3,
-      previous_controller: "Loyalist",
-      controller: "Traitor"
-    },
-    { rounds: [{ round_id: 2 }], areas: [{ area_id: 1 }], control: [first.value] }
-  );
-  assert.equal(second.ok, false);
-  const kept = model.validateControl(
+  const taken = model.validateControl(
     { round_id: 2, area_id: 1, loyalist_points: 0, traitor_points: 3, previous_controller: "Loyalist" },
-    { rounds: [{ round_id: 2 }], areas: [{ area_id: 1 }], control: [first.value] }
+    { ...ctx, control: [first.value] }
   );
-  assert.equal(kept.ok, true, kept.error);
-  assert.equal(kept.value.loyalist_total, 3);
-  assert.equal(kept.value.traitor_total, 3);
-  assert.equal(kept.value.controller, "Loyalist");
+  assert.equal(taken.ok, true, taken.error);
+  assert.equal(taken.value.controller, "Traitor");
+  assert.equal(taken.value.previous_controller, "Loyalist");
+
+  const tied = model.validateControl(
+    { round_id: 2, area_id: 1, loyalist_points: 3, traitor_points: 3, previous_controller: "Loyalist" },
+    { ...ctx, control: [first.value] }
+  );
+  assert.equal(tied.ok, true, tied.error);
+  assert.equal(tied.value.controller, "Loyalist");
+
+  const untouched = model.validateControl(
+    { round_id: 1, area_id: 1, loyalist_points: 0, traitor_points: 0, previous_controller: "neutral" },
+    { ...ctx, control: [] }
+  );
+  assert.equal(untouched.value.controller, "neutral");
+
+  const claimed = model.validateControl(
+    { round_id: 2, area_id: 1, loyalist_points: 1, traitor_points: 1, previous_controller: "Loyalist", controller: "Traitor" },
+    { ...ctx, control: [first.value] }
+  );
+  assert.equal(claimed.ok, false);
 });
 
 test("players cannot carry contact fields, and apex matches stay locked", () => {
@@ -95,13 +105,28 @@ test("players cannot carry contact fields, and apex matches stay locked", () => 
   );
   assert.equal(apex.ok, false);
 
-  const rematch = model.findRematch(
-    [{ pairing_id: 1, kind: "normal", loyalist_id: 1, traitor_id: 2 }],
-    2,
-    1,
-    null
-  );
-  assert.equal(rematch.pairing_id, 1);
+  const played = [{ pairing_id: 1, kind: "normal", loyalist_id: 1, traitor_id: 2 }];
+  const seat = {
+    rounds: [{ round_id: 2 }],
+    players: [
+      { player_id: 1, faction: "Loyalist", dropped: false },
+      { player_id: 2, faction: "Traitor", dropped: false }
+    ],
+    pairings: played
+  };
+  for (const kind of ["apex", "grudge"]) {
+    const again = model.validatePairing(
+      { kind, round_id: 2, state: "draft", loyalist_id: 1, traitor_id: 2 },
+      null,
+      seat
+    );
+    assert.equal(again.ok, false, kind);
+    assert.match(again.error, /already been paired/);
+  }
+  const army = model.validatePlayer({ display_name: "L-01", faction: "Loyalist", army: "Sons of Horus" }, null);
+  assert.equal(army.ok, true, army.error);
+  assert.equal(army.value.army, "Sons of Horus");
+  assert.equal(model.publicEntrant(army.value).army, "Sons of Horus");
   assert.equal(model.normalizeAdminRole("campaign_admin"), "event_admin");
 
   const bye = model.validateResult(
