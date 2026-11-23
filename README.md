@@ -69,7 +69,6 @@ Each later change is its own small PR.
 7. **Phone results.** `report.html` is the form the round QR opens. The event code gates the report and is not shown again after the page loads.
 8. **Scoring and narrative log.** `standings.html` and `narrative.html` are calculated from confirmed games on published rounds. The map uses that same area control.
 9. **Projector and theme.** `/projector` is the hall screen. Journal Tactica is an optional style, with a site default and a visitor switch.
-9. **Projector dashboard and theme.** A view for the room, and the event theme.
 10. **Export and deploy.** Backup/export, then a real Render service. `render.yaml` in this repo is only a draft. See [DEPLOY.md](DEPLOY.md). Do not create a service from this PR.
 
 ## Project layout
