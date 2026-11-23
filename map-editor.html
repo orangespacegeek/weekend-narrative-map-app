@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0e0e18" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>Weekend Event – Edit map</title>
+  <link rel="stylesheet" href="css/site-nav.css" />
+  <link rel="stylesheet" href="css/area-map.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <a class="brand" href="index.html">
+        <span class="titles">
+          <span class="brand-kicker">Narrative map</span>
+          <h1>Edit map</h1>
+        </span>
+      </a>
+      <div class="header-end">
+        <span id="nav-auth"><a class="nav-login" href="login.html">Log in</a></span>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-menu">
+      <a href="index.html">Home</a>
+      <a href="area-map.html">Map</a>
+      <a href="games.html">Results</a>
+      <a href="map-editor.html" data-role="campaign_admin">Edit map</a>
+      <a href="campaign_map.html" data-role="campaign_admin">Node map</a>
+      <a href="systems.html" data-role="campaign_admin">Nodes</a>
+      <button type="button" id="nav-logout" hidden>Log out</button>
+    </nav>
+  </header>
+  <p class="lede" id="gate" hidden style="padding:1rem">Sign in as the event admin to upload a map and edit areas.</p>
+  <div id="editor">
+    <div class="tool-bar">
+      <label class="file-btn button">Upload
+        <input id="upload" type="file" accept="image/png,image/jpeg" />
+      </label>
+      <button type="button" data-mode="select" aria-pressed="true">Select</button>
+      <button type="button" data-mode="rect">Rectangle</button>
+      <button type="button" data-mode="poly">Polygon</button>
+      <button type="button" id="close-shape" class="ghost">Close shape</button>
+      <button type="button" data-mode="route" class="ghost">Route</button>
+      <button type="button" id="save">Save</button>
+    </div>
+    <div class="editor-layout">
+      <div class="stage">
+        <svg id="board" role="img" aria-label="Zone editor">
+          <g id="routes"></g>
+          <g id="areas"></g>
+          <g id="draft"></g>
+          <g id="labels"></g>
+          <g id="handles"></g>
+        </svg>
+      </div>
+      <div class="editor-form">
+        <p id="msg" class="msg" role="status">Upload a PNG or JPEG, draw areas, then save.</p>
+        <form id="area-form" class="form-grid" hidden>
+          <label class="field">Name
+            <input name="name" maxlength="80" />
+          </label>
+          <label class="field">Tables
+            <input name="tables" placeholder="1, 2, 3" />
+          </label>
+          <label class="field">Scenario
+            <input name="scenario" maxlength="80" />
+          </label>
+          <button type="button" class="danger" id="delete-area">Delete area</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script src="js/api.js"></script>
+  <script src="js/zone-editor.js"></script>
+  <script>SH.applyNavPermissions();</script>
+</body>
+</html>

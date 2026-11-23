@@ -31,7 +31,9 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 | `games.json` | The interim result board from the first PR. New games belong in `results.json` |
 | `accounts.json`, `sessions.json` | The event admin only. Not in git |
 
-An area has `area_id`, `name`, `shape` (`point` or `outline`), `points`, `x`, `y`, `routes` (other area ids), `tables`, `scenario`, and `notes`. A point is one coordinate. An outline needs at least three. `x` and `y` are the position on the current SVG map. The image file itself is not uploaded here. `image.file` is only a name, with no folders in it.
+An area has `area_id`, `name`, `shape` (`point` or `outline`), `points`, `x`, `y`, `routes` (other area ids), `tables`, `scenario`, and `notes`. A point is one coordinate. An outline needs at least three. `points` are pixels on the uploaded map image. `x` and `y` stay in the 800 by 560 node-map box so the older node page still has a position.
+
+The event admin uploads a PNG or JPEG to `POST /api/map/image`. The bytes are stored under `DATA_DIR/maps/` as `event-map.png` or `event-map.jpg`, and `map.json` records that file name plus the pixel size. Visitors load the picture from `GET /api/map/image`. `PUT /api/map` can replace the area list in one save. Both writes are admin-only and run the same area checks.
 
 An entrant has a display name, a faction, and an optional `army` (the legion or army name, free text). `army` is public, next to the display name and faction. There is no contact field, real name, email, or Discord id. `dropped` takes them out of later pairings. `bye` is the organiser's flag that this entrant should receive a bye when the round is built. The public entrant list omits that flag.
 
@@ -46,7 +48,8 @@ A result belongs to one pairing. The outcome has to match the VP: higher wins, e
 Writes need the event admin. Visitors can read the public shapes.
 
 - `GET` / `PUT /api/event`
-- `GET` / `PUT /api/map` for the image reference
+- `GET` / `PUT /api/map` for the image reference and, on PUT, a full area list
+- `GET` / `POST /api/map/image` to read or upload the PNG or JPEG
 - `GET` / `POST /api/areas`, `PUT` / `DELETE /api/areas/:id`
 - `GET` / `POST /api/players`, `PUT` / `DELETE /api/players/:id`
 - `GET` / `POST /api/rounds`, `PUT` / `DELETE /api/rounds/:id`
