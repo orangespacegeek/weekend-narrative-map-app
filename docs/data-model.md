@@ -16,7 +16,7 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 - Pairings and rounds move draft, then approved, then published. A record cannot be published straight from draft.
 - Area control is decided each round from the campaign points scored in that area in that round. The side with more points takes it. A tie keeps the previous holder, or stays neutral if nobody held it. Earlier rounds are not added in. The history of each round is kept for the narrative log.
 - The faction winner is the side holding the most areas at the end. If both sides hold the same number, the side with more total campaign points wins. If that is also equal, the event is tied. Best general is the top Loyalist and the top Traitor, ordered by campaign points, then VP difference, then strength of schedule.
-- Each event has an `event_code`. Each round has a `qr_token`. Both stay off public responses. Phone reporting is a later PR.
+- Each event has an `event_code`. Each round has a `qr_token`. Both stay off public JSON. The printed QR for a round encodes the event code and the round number into `/report.html`. The phone form itself is a later PR. `qr_token` is not in that URL.
 
 ## Files
 
@@ -39,7 +39,9 @@ The event admin uploads a PNG or JPEG to `POST /api/map/image`. The bytes are st
 
 An entrant has a display name, a faction, and an optional `army` (the legion or army name, free text). `army` is public, next to the display name and faction. There is no contact field, real name, email, or Discord id. `dropped` takes them out of later pairings. `bye` is the organiser's flag that this entrant should receive a bye when the round is built. The public entrant list omits that flag.
 
-A pairing `kind` is `normal`, `apex`, `grudge`, or `bye`. Apex and grudge are always `locked`. A bye names one entrant. Any other pairing names one Loyalist and one Traitor. `table` and `area_id` can wait until the organiser assigns them. `state` is `draft`, `approved`, or `published`. Visitors only receive published pairings. Generating again drops this round's unlocked drafts, including byes, before the engine runs, and leaves locked Apex and Grudge matches in place.
+A pairing `kind` is `normal`, `apex`, `grudge`, or `bye`. Apex and grudge are always `locked`. A bye names one entrant and has no table. Any other pairing names one Loyalist and one Traitor. `state` is `draft`, `approved`, or `published`. Visitors only receive published pairings. Generating again drops this round's unlocked drafts, including byes, before the engine runs, and leaves locked Apex and Grudge matches in place.
+
+When a round is generated, each game is given the next free table from the map. Areas are taken in `area_id` order. An area with table numbers contributes one seat per number, and the game is stored with that area so its scenario prints with the table. An area with a scenario and no table numbers contributes one seat, labeled with the scenario's first 16 characters. A table the organiser already set on a locked Apex or Grudge match is kept. If two games in the round share a table, the save still stands and the response warns that the table is booked twice. A table that is not on the map is kept and warned about, so an older pairing is not rejected. Games left over when the map runs out of seats stay unassigned, with a warning. The printed sheet for a round is available only after every pairing in that round is published. It lists games by table and players alphabetically, with display name, faction, and army.
 
 A result belongs to one pairing. The outcome has to match the VP: higher wins, equal is a tie. Confirmation is `pending`, `confirmed`, or `disputed`. Opponent confirmation is only valid when one of the two sides reported the result. A bye result is written when the round is published, confirmed by the admin, and worth at least 10 VP. Visitors only receive results whose pairing is published.
 
@@ -55,6 +57,9 @@ Writes need the event admin. Visitors can read the public shapes.
 - `GET` / `POST /api/areas`, `PUT` / `DELETE /api/areas/:id`
 - `GET` / `POST /api/players`, `PUT` / `DELETE /api/players/:id`
 - `GET` / `POST /api/rounds`, `PUT` / `DELETE /api/rounds/:id`
+- `GET /api/rounds/:id/sheet` for a published round's print data
+- `GET /api/rounds/:id/qr.svg` for that round's QR. Visitors get it only after the round is published. `?download=1` sends it as a file
+- `GET /print/round/:number` is the paper pairing sheet. `GET /print/qr-sheet` is the admin QR sheet
 - `GET` / `POST /api/pairings`, `PUT` / `DELETE /api/pairings/:id`
 - `GET` / `POST /api/results`, `PUT` / `DELETE /api/results/:id`, `POST /api/results/:id/confirm`, `POST /api/results/:id/dispute`
 - `GET` / `POST /api/control`

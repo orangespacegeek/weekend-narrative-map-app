@@ -103,6 +103,9 @@ const PUBLISHED_ADMIN_PASSWORD = "change-me";
 
 const model = require("./lib/model");
 const swiss = require("./lib/swiss");
+const tables = require("./lib/tables");
+const qr = require("./lib/qr");
+const printPages = require("./lib/print");
 
 // systems.json is still the seed file and the shape the current map page edits.
 // map.json is the event area list (area_id, routes, tables, scenario).
@@ -127,6 +130,7 @@ const PUBLIC_PAGES = new Set([
   "map-editor.html",
   "roster.html",
   "pairings.html",
+  "report.html",
   "systems.html",
   "games.html"
 ]);
@@ -665,6 +669,58 @@ function storedMapPath(file) {
   const resolved = path.resolve(dir, file);
   if (!resolved.startsWith(path.resolve(dir) + path.sep)) return null;
   return resolved;
+}
+
+function requestOrigin(req) {
+  const trust = String(process.env.TRUST_PROXY || "").trim() === "1";
+  const hostHeader = trust ? req.headers["x-forwarded-host"] || req.headers.host : req.headers.host;
+  const host = String(hostHeader || "localhost").split(",")[0].trim();
+  let proto = "http";
+  if (trust && req.headers["x-forwarded-proto"]) {
+    proto = String(req.headers["x-forwarded-proto"]).split(",")[0].trim() || "http";
+  }
+  return proto + "://" + host;
+}
+
+function sendHtml(res, status, html) {
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  });
+  res.end(html);
+}
+
+function sendSvg(res, svg, downloadName) {
+  const headers = {
+    "Content-Type": "image/svg+xml; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  };
+  if (downloadName) headers["Content-Disposition"] = 'attachment; filename="' + downloadName + '"';
+  res.writeHead(200, headers);
+  res.end(svg);
+}
+
+function bindTable(pairing, areas) {
+  if (pairing.kind === "bye") {
+    if (pairing.table) return { ok: false, error: "A bye has no table" };
+    pairing.table = null;
+    pairing.area_id = null;
+    return { ok: true, pairing };
+  }
+  if (!pairing.table) return { ok: true, pairing };
+  const slot = tables.tableSlots(areas).slots.find((item) => item.table === pairing.table);
+  if (slot) pairing.area_id = slot.area_id;
+  return { ok: true, pairing };
+}
+
+function roundPairings(roundId) {
+  return readList("pairings.json").filter((pairing) => Number(pairing.round_id) === Number(roundId));
+}
+
+function roundIsPublic(rows) {
+  return rows.length > 0 && rows.every((pairing) => pairing.state === "published");
 }
 
 function requireAdmin(req) {
@@ -1631,9 +1687,20 @@ async function handleGenerateRound(req, res, method, idPart) {
     pairings.push(pairing);
     made.push(pairing);
   });
+  const madeIds = new Set(made.map((pairing) => Number(pairing.pairing_id)));
+  const assigned = tables.assignTables(
+    pairings.filter((pairing) => Number(pairing.round_id) === roundId),
+    readMapFile().areas
+  );
+  const assignedById = new Map(assigned.pairings.map((pairing) => [Number(pairing.pairing_id), pairing]));
+  pairings = pairings.map((pairing) => assignedById.get(Number(pairing.pairing_id)) || pairing);
   writeJsonFile("pairings.json", pairings);
   writeJsonFile("results.json", results);
-  return send(res, 200, { pairings: made, warnings: generated.warnings, standings: generated.standings });
+  return send(res, 200, {
+    pairings: pairings.filter((pairing) => madeIds.has(Number(pairing.pairing_id))),
+    warnings: (generated.warnings || []).concat(assigned.warnings),
+    standings: generated.standings
+  });
 }
 
 async function handleRoundState(req, res, method, idPart, target) {
@@ -1666,6 +1733,72 @@ async function handleRoundState(req, res, method, idPart, target) {
   return send(res, 200, { pairings: mine });
 }
 
+function sheetFor(round) {
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  return tables.buildSheet({
+    eventName: event.name,
+    round,
+    pairings: roundPairings(round.round_id),
+    players: readList("players.json"),
+    areas: readMapFile().areas
+  });
+}
+
+function roundQr(req, round) {
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  const target = qr.resultsFormUrl(requestOrigin(req), event.event_code, round.number);
+  return { target, svg: qr.qrSvg(target) };
+}
+
+async function handleRoundSheet(req, res, method, idPart) {
+  if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+  const round = readList("rounds.json").find((row) => String(row.round_id) === String(idPart));
+  if (!round) return send(res, 404, { error: "Round not found" });
+  if (!roundIsPublic(roundPairings(round.round_id))) return send(res, 404, { error: "Pairings are not published yet" });
+  return send(res, 200, sheetFor(round));
+}
+
+async function handleRoundQr(req, res, method, idPart) {
+  if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+  const round = readList("rounds.json").find((row) => String(row.round_id) === String(idPart));
+  if (!round) return send(res, 404, { error: "Round not found" });
+  const gate = requireAdmin(req);
+  if (!gate.ok && !roundIsPublic(roundPairings(round.round_id))) {
+    return send(res, 404, { error: "Pairings are not published yet" });
+  }
+  const image = roundQr(req, round);
+  let download = false;
+  try {
+    download = new URL(req.url || "/", "http://localhost").searchParams.get("download") === "1";
+  } catch (_) {}
+  return sendSvg(res, image.svg, download ? "round-" + round.number + "-qr.svg" : "");
+}
+
+async function handlePrint(req, res, pathname) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.writeHead(405);
+    res.end("Method not allowed");
+    return;
+  }
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  if (pathname === "/print/qr-sheet") {
+    const gate = requireAdmin(req);
+    if (!gate.ok) return sendHtml(res, gate.status, "<!DOCTYPE html><html><body><p>" + gate.error + "</p></body></html>");
+    const cards = readList("rounds.json")
+      .slice()
+      .sort((a, b) => Number(a.number) - Number(b.number))
+      .map((round) => ({ round_id: round.round_id, number: round.number, svg: roundQr(req, round).svg }));
+    return sendHtml(res, 200, printPages.renderQrSheet(event.name, cards));
+  }
+  const number = pathname.slice("/print/round/".length);
+  const round = readList("rounds.json").find((row) => String(row.number) === String(number));
+  if (!round || !roundIsPublic(roundPairings(round.round_id))) {
+    return sendHtml(res, 404, "<!DOCTYPE html><html><body><p>Pairings are not published yet.</p></body></html>");
+  }
+  const sheet = sheetFor(round);
+  return sendHtml(res, 200, printPages.renderRoundPage(sheet, roundQr(req, round).svg));
+}
+
 async function handlePairings(req, res, method, idPart) {
   const list = readList("pairings.json");
   if (method === "GET") {
@@ -1692,20 +1825,24 @@ async function handlePairings(req, res, method, idPart) {
   if (method === "POST" && idPart == null) {
     const checked = model.validatePairing(body, null, ctx);
     if (!checked.ok) return send(res, 400, { error: checked.error });
-    checked.value.pairing_id = nextId(list, "pairing_id");
-    list.push(checked.value);
+    const seated = bindTable(checked.value, ctx.areas);
+    if (!seated.ok) return send(res, 400, { error: seated.error });
+    seated.pairing.pairing_id = nextId(list, "pairing_id");
+    list.push(seated.pairing);
     writeJsonFile("pairings.json", list);
-    return send(res, 201, checked.value);
+    return send(res, 201, { ...seated.pairing, warnings: tables.tableConflicts(list, seated.pairing.round_id) });
   }
   if (method === "PUT" && idPart != null) {
     const idx = list.findIndex((pairing) => String(pairing.pairing_id) === String(idPart));
     if (idx < 0) return send(res, 404, { error: "Not found" });
     const checked = model.validatePairing(body, list[idx], ctx);
     if (!checked.ok) return send(res, 400, { error: checked.error });
-    checked.value.pairing_id = list[idx].pairing_id;
-    list[idx] = checked.value;
+    const seated = bindTable(checked.value, ctx.areas);
+    if (!seated.ok) return send(res, 400, { error: seated.error });
+    seated.pairing.pairing_id = list[idx].pairing_id;
+    list[idx] = seated.pairing;
     writeJsonFile("pairings.json", list);
-    return send(res, 200, checked.value);
+    return send(res, 200, { ...seated.pairing, warnings: tables.tableConflicts(list, seated.pairing.round_id) });
   }
   return send(res, 405, { error: "Method not allowed" });
 }
@@ -1846,6 +1983,8 @@ async function handleApi(req, res, pathname) {
   if (parts[0] === "areas") return handleAreas(req, res, method, parts[1]);
   if (parts[0] === "players") return handlePlayers(req, res, method, parts[1]);
   if (parts[0] === "rounds" && parts[2] === "pair" && parts.length === 3) return handleGenerateRound(req, res, method, parts[1]);
+  if (parts[0] === "rounds" && parts[2] === "sheet" && parts.length === 3) return handleRoundSheet(req, res, method, parts[1]);
+  if (parts[0] === "rounds" && parts[2] === "qr.svg" && parts.length === 3) return handleRoundQr(req, res, method, parts[1]);
   if (parts[0] === "rounds" && parts[2] === "approve" && parts.length === 3) return handleRoundState(req, res, method, parts[1], "approved");
   if (parts[0] === "rounds" && parts[2] === "publish" && parts.length === 3) return handleRoundState(req, res, method, parts[1], "published");
   if (parts[0] === "rounds") return handleRounds(req, res, method, parts[1]);
@@ -1917,6 +2056,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname.startsWith("/api/")) {
       await handleApi(req, res, pathname);
+      return;
+    }
+    if (pathname === "/print/qr-sheet" || pathname.startsWith("/print/round/")) {
+      await handlePrint(req, res, pathname);
       return;
     }
     serveStatic(req, res, pathname);
