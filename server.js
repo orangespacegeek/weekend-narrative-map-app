@@ -124,6 +124,7 @@ const PUBLIC_PAGES = new Set([
   "campaign_map.html",
   "area-map.html",
   "map-editor.html",
+  "roster.html",
   "systems.html",
   "games.html"
 ]);
@@ -1465,6 +1466,21 @@ async function handlePlayers(req, res, method, idPart) {
     return send(res, 200, { ok: true, deleted: id });
   }
   const body = (await readBody(req)) || {};
+  if (method === "POST" && idPart === "import") {
+    const parsed = model.parseRosterImport(body.text);
+    if (!parsed.ok) return send(res, 400, { error: parsed.error });
+    for (const row of parsed.value) {
+      if (duplicateName(list, row.display_name)) {
+        return send(res, 409, { error: row.display_name + " is already on the roster" });
+      }
+    }
+    parsed.value.forEach((row) => {
+      row.player_id = nextId(list, "player_id");
+      list.push(row);
+    });
+    writeJsonFile("players.json", list);
+    return send(res, 201, { added: parsed.value.map(model.publicEntrant) });
+  }
   if (method === "POST" && idPart == null) {
     const checked = model.validatePlayer(body, null);
     if (!checked.ok) return send(res, 400, { error: checked.error });

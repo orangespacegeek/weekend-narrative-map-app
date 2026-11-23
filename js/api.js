@@ -7,7 +7,10 @@
   const ID_KEYS = {
     systems: "sys_id",
     games: "game_id",
-    meta: null
+    meta: null,
+    players: "player_id",
+    rounds: "round_id",
+    pairings: "pairing_id"
   };
 
   let mode = "local";
@@ -228,6 +231,16 @@
     return request("/api/map", { method: "PUT", body: JSON.stringify({ areas: areas || [] }) });
   }
 
+  async function importRoster(text) {
+    await probe();
+    return request("/api/players/import", { method: "POST", body: JSON.stringify({ text: text || "" }) });
+  }
+
+  async function adminList(collection) {
+    await probe();
+    return request("/api/" + collection, { method: "GET" });
+  }
+
   function isAdminRole(role) {
     return role === "event_admin" || role === "campaign_admin";
   }
@@ -330,6 +343,8 @@
     setPassword,
     uploadMap,
     saveAreas,
+    importRoster,
+    adminList,
     confirmGame: (id, as) => postAction("/api/games/" + encodeURIComponent(id) + "/confirm", { as: as || "admin" }),
     disputeGame: (id, note) => postAction("/api/games/" + encodeURIComponent(id) + "/dispute", { note: note || "" }),
     voidGame: (id) => postAction("/api/games/" + encodeURIComponent(id) + "/void", {}),
