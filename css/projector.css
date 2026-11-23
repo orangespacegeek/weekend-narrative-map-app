@@ -1,0 +1,116 @@
+html, body.projector {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg, #0a0a12);
+  color: var(--text, #e8e0c8);
+}
+
+.projector {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100vh;
+  font-family: system-ui, sans-serif;
+}
+
+.projector header,
+.projector footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.8rem 1.4rem 0.2rem;
+}
+
+.projector h1 {
+  margin: 0;
+  font-size: clamp(1.6rem, 3vw, 3rem);
+}
+
+.projector .round {
+  margin: 0;
+  color: var(--muted, #9a9080);
+  font-size: clamp(1rem, 1.6vw, 1.5rem);
+}
+
+.stage {
+  display: grid;
+  grid-template-columns: 1.4fr 0.9fr;
+  gap: 1rem;
+  min-height: 0;
+  padding: 0.4rem 1.2rem 0.6rem;
+}
+
+.map-panel, .side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.map-frame {
+  flex: 1;
+  min-height: 0;
+  background: var(--panel, #12121e);
+  border: 1px solid var(--border, #3a3a55);
+  border-radius: 16px;
+  position: relative;
+}
+
+.map-frame svg { width: 100%; height: 100%; display: block; }
+
+.ai-mark {
+  position: absolute;
+  left: 0.7rem;
+  bottom: 0.5rem;
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--muted, #9a9080);
+}
+
+.bar {
+  display: flex;
+  height: 2.4rem;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border, #3a3a55);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.bar span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 0.4rem;
+}
+
+.bar .loyal { background: rgba(59, 130, 246, 0.55); }
+.bar .open { background: rgba(148, 163, 184, 0.35); }
+.bar .traitor { background: rgba(239, 68, 68, 0.55); }
+
+html[data-theme="journal-tactica"] .bar .loyal { background: rgba(204, 165, 92, 0.85); color: #1a120c; }
+html[data-theme="journal-tactica"] .bar .open { background: rgba(200, 186, 156, 0.35); }
+html[data-theme="journal-tactica"] .bar .traitor { background: #c43426; }
+
+.generals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.generals article, .highlights {
+  background: var(--panel, #12121e);
+  border: 1px solid var(--border, #3a3a55);
+  border-radius: 14px;
+  padding: 0.7rem 0.85rem;
+}
+
+.generals h2, .highlights h2 { margin: 0 0 0.25rem; font-size: clamp(0.95rem, 1.4vw, 1.3rem); }
+.generals p, .highlights li { margin: 0.15rem 0; }
+.highlights { flex: 1; min-height: 0; overflow: auto; }
+.highlights ol { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+
+.projector footer { color: var(--muted, #9a9080); font-size: 0.8rem; padding-bottom: 0.6rem; }

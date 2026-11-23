@@ -22,13 +22,12 @@ Scoring and area control are fixed. Standings, the map, and the narrative log ar
 
 | File | What it holds |
 | --- | --- |
-| `event.json` | Name, blurb, code, 4 or 5 rounds, scoring, tiebreak order |
+| `event.json` | Name, blurb, code, 4 or 5 rounds, scoring, tiebreak order, site theme |
 | `map.json` | Optional image file name, and the areas |
 | `players.json` | Entrants: display name, faction, optional army, `dropped`, `bye` |
 | `rounds.json` | Round number, state, QR token |
 | `pairings.json` | Table, area, kind, locked, state, the two entrants |
 | `results.json` | VP, outcome, confirmation, campaign points |
-| `control.json` | One row per round per area: that round's points, the previous holder, and the holder after the round |
 | `systems.json` | The same areas in the old `sys_id` / `sys_links` shape, for the current map page |
 | `games.json` | Retired interim board. New results belong in `results.json`. The old routes remain so older clients do not 404 |
 | `narrative.json` | Optional organiser recap for each round |
@@ -46,7 +45,7 @@ When a round is generated, each game is given the next free table from the map. 
 
 A result belongs to one pairing. The outcome has to match the VP: higher wins, equal is a tie. Confirmation is `pending`, `confirmed`, or `disputed`. Opponent confirmation is only valid when one of the two sides reported the result. A bye result is written when the round is published, confirmed by the admin, and worth at least 10 VP. A phone report is pending until the other player sends the same scores, which confirms it, or different scores, which flags it for the organiser. An optional note is plain text, at most 240 characters, and cannot look like an email address or a phone number. Visitors only receive confirmed results whose pairing is published.
 
-Live area control is calculated from confirmed results on published rounds. Each published round records every area: that round's campaign points, the previous holder, and the holder afterwards. A side with more points takes the area. A tie keeps the previous holder, and a tied area that nobody has held stays neutral. `POST /api/control` still checks a proposed row against that same rule. The map, standings, and log do not read those posted rows; they use the calculated history. Pending and unpublished results are left out.
+Live area control is calculated from confirmed results on published rounds. It is not stored in `control.json`. Each published round has a row per area: that round's campaign points, the previous holder, and the holder afterwards. A side with more points takes the area. A tie keeps the previous holder, and a tied area that nobody has held stays neutral. `GET /api/control` returns that calculated history. Pending and unpublished results are left out. The hall view at `/projector` uses the same numbers.
 
 ## Admin API
 
@@ -64,7 +63,8 @@ Writes need the event admin. Visitors can read the public shapes.
 - `GET` / `POST /api/pairings`, `PUT` / `DELETE /api/pairings/:id`
 - `GET` / `POST /api/results`, `PUT` / `DELETE /api/results/:id`, `POST /api/results/:id/confirm`, `POST /api/results/:id/reject`, `POST /api/results/:id/dispute`
 - `GET /api/report?round=` lists published tables for the phone form. `POST /api/report` files a report and requires the event code. The code is not copied into the response.
-- `GET` / `POST /api/control`. `GET` is the calculated history.
+- `GET /api/control` is the calculated history. There is no control file to post.
+- `GET /api/projector` is the hall display. `GET` / `POST /api/theme` reads or sets the site style. The post needs the admin and the CSRF check.
 - `GET /api/standings` for the public scoreboard and Best General tables
 - `GET /api/narrative` for the public log. `POST /api/narrative` saves an organiser recap and needs the admin and the CSRF check.
 - `GET /api/public/event`, `/map`, `/entrants` omit the event code, QR tokens, and the bye flag

@@ -1,0 +1,117 @@
+/* Journal Tactica. Applied only when the page asks for it. */
+@import url("https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@600;700&family=EB+Garamond:ital,wght@1,500;1,600&display=swap");
+
+html[data-theme="journal-tactica"] {
+  --bg: #16110c;
+  --panel: #241910;
+  --panel-2: #2e2116;
+  --border: #826230;
+  --text: #ece0c4;
+  --muted: #c8ba9c;
+  --accent: #cca55c;
+  --ok: #ece0c4;
+  --danger: #e2624e;
+  --node: #ece0c4;
+  color-scheme: dark;
+}
+
+html[data-theme="journal-tactica"] body {
+  background:
+    radial-gradient(circle at top, rgba(204, 165, 92, 0.08), transparent 42%),
+    var(--bg);
+  color: var(--text);
+  font-family: "EB Garamond", Palatino, "Palatino Linotype", Georgia, serif;
+  font-style: italic;
+}
+
+html[data-theme="journal-tactica"] h1,
+html[data-theme="journal-tactica"] h2,
+html[data-theme="journal-tactica"] h3,
+html[data-theme="journal-tactica"] button,
+html[data-theme="journal-tactica"] .button,
+html[data-theme="journal-tactica"] .site-nav a,
+html[data-theme="journal-tactica"] .brand-kicker,
+html[data-theme="journal-tactica"] .label,
+html[data-theme="journal-tactica"] .num {
+  font-family: Cinzel, Palatino, "Palatino Linotype", Georgia, serif;
+  font-style: normal;
+}
+
+html[data-theme="journal-tactica"] .site-header h1 {
+  font-family: "Cinzel Decorative", Cinzel, Palatino, Georgia, serif;
+  color: #cca55c;
+  letter-spacing: 0.04em;
+}
+
+html[data-theme="journal-tactica"] .site-header {
+  background: #1c140e;
+  border-bottom-color: #826230;
+}
+
+html[data-theme="journal-tactica"] .card,
+html[data-theme="journal-tactica"] .stat,
+html[data-theme="journal-tactica"] .sheet-card {
+  background: var(--panel);
+  border-color: #826230;
+  box-shadow: inset 0 0 0 1px rgba(204, 165, 92, 0.15);
+}
+
+html[data-theme="journal-tactica"] a { color: #cca55c; }
+
+html[data-theme="journal-tactica"] button,
+html[data-theme="journal-tactica"] .button {
+  background: #cca55c;
+  color: #1a120c;
+}
+
+html[data-theme="journal-tactica"] button.ghost,
+html[data-theme="journal-tactica"] a.button.ghost {
+  background: transparent;
+  color: #ece0c4;
+  border-color: #826230;
+}
+
+html[data-theme="journal-tactica"] button.danger {
+  color: #e2624e;
+  border-color: #c43426;
+}
+
+html[data-theme="journal-tactica"] input,
+html[data-theme="journal-tactica"] select,
+html[data-theme="journal-tactica"] textarea {
+  background: #120e0a;
+  color: #ece0c4;
+  border-color: #826230;
+}
+
+html[data-theme="journal-tactica"] .header-end a.nav-login {
+  background: #cca55c;
+  color: #1a120c;
+}
+
+html[data-theme="journal-tactica"] .site-nav {
+  background: #1c140e;
+}
+
+html[data-theme="journal-tactica"] .area-shape.loyalist { fill: rgba(204, 165, 92, 0.35); stroke: #cca55c; }
+html[data-theme="journal-tactica"] .area-shape.traitor { fill: rgba(226, 98, 78, 0.4); stroke: #e2624e; }
+html[data-theme="journal-tactica"] .area-shape.neutral { fill: rgba(200, 186, 156, 0.22); stroke: #c8ba9c; }
+
+html[data-theme="journal-tactica"] .theme-switch select {
+  min-height: 36px;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.theme-switch {
+  display: inline-flex;
+  align-items: center;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}

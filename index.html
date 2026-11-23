@@ -1,6 +1,17 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-site-theme="">
 <head>
+  <script>
+    (function () {
+      try {
+        var site = document.documentElement.getAttribute("data-site-theme") || "current";
+        var choice = localStorage.getItem("wem_theme") || "site";
+        var theme = choice === "site" ? site : choice;
+        if (theme === "journal-tactica") document.documentElement.setAttribute("data-theme", "journal-tactica");
+      } catch (e) {}
+    })();
+  </script>
+  
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0e0e18" />
@@ -8,6 +19,7 @@
   <meta name="description" content="Phone-first map and result board for a one-weekend Horus Heresy narrative tournament." />
   <title>Weekend Event</title>
   <link rel="stylesheet" href="css/site-nav.css" />
+  <link rel="stylesheet" href="css/journal-tactica.css" />
 </head>
 <body>
   <header class="site-header">
@@ -74,13 +86,39 @@
         <p class="button-row" style="margin-top:0.7rem">
           <a class="button" href="systems.html">Edit nodes</a>
           <a class="button ghost" href="games.html">Log a result</a>
+          <a class="button ghost" href="projector.html">Projector</a>
         </p>
+        <label class="field">Site style
+          <select id="site-theme">
+            <option value="current">Current</option>
+            <option value="journal-tactica">Journal Tactica</option>
+          </select>
+        </label>
+        <button type="button" id="save-theme">Save site default</button>
+        <p id="theme-msg" class="msg" role="status"></p>
       </section>
     </div>
   </main>
+  <script src="js/theme.js"></script>
   <script src="js/api.js"></script>
   <script>
     SH.applyNavPermissions().then(async () => {
+      try {
+        const theme = await fetch("/api/theme", { cache: "no-store" }).then((res) => res.json());
+        const select = document.getElementById("site-theme");
+        if (select && theme.theme) select.value = theme.theme;
+      } catch (_) {}
+      document.getElementById("save-theme").addEventListener("click", async () => {
+        const msg = document.getElementById("theme-msg");
+        msg.textContent = "Saving…";
+        try {
+          const saved = await SH.saveTheme(document.getElementById("site-theme").value);
+          document.documentElement.setAttribute("data-site-theme", saved.theme);
+          msg.textContent = "Site default saved. Visitors using the site style will see it on the next page.";
+        } catch (err) {
+          msg.textContent = err.message || "Could not save the style";
+        }
+      });
       try {
         const counts = await fetch("/api/public/counts", { cache: "no-store" }).then((res) => res.json());
         document.getElementById("count-nodes").textContent = counts.nodes ?? "0";
