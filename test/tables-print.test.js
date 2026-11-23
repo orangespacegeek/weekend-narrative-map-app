@@ -293,7 +293,10 @@ async function assertVisitorCannotSeeCode(base, code, round) {
     "/print/qr-sheet",
     "/report.html?event=" + encodeURIComponent(code) + "&round=" + round.number,
     "/api/report?round=" + round.number,
-    "/api/report?round=" + round.number + "&event=" + encodeURIComponent(code)
+    "/api/report?round=" + round.number + "&event=" + encodeURIComponent(code),
+    "/api/standings",
+    "/api/narrative",
+    "/api/public/map"
   ];
   const areas = await (await fetch(base + "/api/areas")).json();
   areas.forEach((area) => paths.push("/api/areas/" + area.area_id));
