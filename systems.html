@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0e0e18" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>Weekend Event – Nodes</title>
+  <link rel="stylesheet" href="css/site-nav.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <a class="brand" href="index.html">
+        <span class="titles">
+          <span class="brand-kicker">Narrative map</span>
+          <h1>Nodes</h1>
+        </span>
+      </a>
+      <div class="header-end">
+        <span id="nav-auth"><a class="nav-login" href="login.html">Log in</a></span>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-menu">
+      <a href="index.html">Home</a>
+      <a href="campaign_map.html">Map</a>
+      <a href="games.html">Results</a>
+      <a href="systems.html" data-role="campaign_admin">Nodes</a>
+      <button type="button" id="nav-logout" hidden>Log out</button>
+    </nav>
+  </header>
+  <main class="page">
+    <p class="lede">Each node is a place on the map. Routes are the lines between nodes. Visitors can look. The admin can edit.</p>
+    <p class="button-row">
+      <a class="button ghost" href="campaign_map.html">Open map</a>
+      <button type="button" id="add-node" data-role="campaign_admin" hidden>Add node</button>
+    </p>
+    <div id="list" class="stack" style="margin-top:0.9rem"></div>
+    <form id="editor" class="card form-grid" hidden style="margin-top:0.9rem">
+      <h2 id="editor-title">Edit node</h2>
+      <label class="field">Name
+        <input name="sys_name" required maxlength="80" />
+      </label>
+      <div class="two">
+        <label class="field">X
+          <input name="sys_x" inputmode="decimal" />
+        </label>
+        <label class="field">Y
+          <input name="sys_y" inputmode="decimal" />
+        </label>
+      </div>
+      <div class="field">Routes
+        <div id="route-picks" class="check-list"></div>
+      </div>
+      <label class="field">Notes
+        <textarea name="sys_notes" maxlength="500"></textarea>
+      </label>
+      <div class="button-row">
+        <button type="submit">Save</button>
+        <button type="button" class="ghost" id="cancel-edit">Cancel</button>
+        <button type="button" class="danger" id="delete-node" hidden>Delete</button>
+      </div>
+      <p id="msg" class="msg" role="status"></p>
+    </form>
+  </main>
+  <script src="js/api.js"></script>
+  <script>
+    let nodes = [];
+    let editingId = null;
+    const listEl = document.getElementById("list");
+    const editor = document.getElementById("editor");
+    const msg = document.getElementById("msg");
+
+    function routeLabel(node) {
+      const ids = String(node.sys_links || "").split(",").map((s) => Number(s.trim())).filter((n) => n > 0);
+      if (!ids.length) return "No routes";
+      return ids.map((id) => {
+        const other = nodes.find((n) => Number(n.sys_id) === id);
+        return other ? other.sys_name : "#" + id;
+      }).join(", ");
+    }
+
+    function render() {
+      listEl.replaceChildren();
+      if (!nodes.length) {
+        const p = document.createElement("p");
+        p.className = "empty";
+        p.textContent = "No nodes yet.";
+        listEl.appendChild(p);
+        return;
+      }
+      nodes.forEach((node) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        const title = document.createElement("h2");
+        title.textContent = node.sys_name;
+        const routes = document.createElement("p");
+        routes.textContent = routeLabel(node);
+        card.append(title, routes);
+        if (SH.isLoggedIn()) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "ghost";
+          btn.textContent = "Edit";
+          btn.style.marginTop = "0.6rem";
+          btn.addEventListener("click", () => openEditor(node.sys_id));
+          card.appendChild(btn);
+        }
+        listEl.appendChild(card);
+      });
+    }
+
+    function fillRoutes(selected) {
+      const box = document.getElementById("route-picks");
+      box.replaceChildren();
+      nodes.filter((node) => Number(node.sys_id) !== Number(editingId)).forEach((node) => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = String(node.sys_id);
+        input.checked = selected.includes(Number(node.sys_id));
+        label.append(input, document.createTextNode(node.sys_name));
+        box.appendChild(label);
+      });
+    }
+
+    function openEditor(id) {
+      editingId = id == null ? null : Number(id);
+      const node = nodes.find((item) => Number(item.sys_id) === editingId);
+      editor.hidden = false;
+      document.getElementById("editor-title").textContent = node ? "Edit node" : "New node";
+      editor.sys_name.value = node ? node.sys_name : "";
+      editor.sys_x.value = node ? node.sys_x : 400;
+      editor.sys_y.value = node ? node.sys_y : 280;
+      editor.sys_notes.value = node ? node.sys_notes || "" : "";
+      const selected = node ? String(node.sys_links || "").split(",").map((s) => Number(s.trim())).filter((n) => n > 0) : [];
+      fillRoutes(selected);
+      document.getElementById("delete-node").hidden = !node;
+      msg.textContent = "";
+      editor.scrollIntoView({ block: "nearest" });
+    }
+
+    document.getElementById("add-node").addEventListener("click", () => openEditor(null));
+    document.getElementById("cancel-edit").addEventListener("click", () => {
+      editor.hidden = true;
+      editingId = null;
+    });
+    editor.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const links = [...editor.querySelectorAll("#route-picks input:checked")].map((input) => input.value);
+      const row = {
+        sys_name: editor.sys_name.value,
+        sys_x: editor.sys_x.value,
+        sys_y: editor.sys_y.value,
+        sys_notes: editor.sys_notes.value,
+        sys_links: links.join(",")
+      };
+      if (editingId != null) row.sys_id = editingId;
+      msg.className = "msg";
+      msg.textContent = "Saving…";
+      try {
+        await SH.save("systems", row);
+        editor.hidden = true;
+        await load();
+      } catch (err) {
+        msg.className = "msg err";
+        msg.textContent = err.message || "Could not save";
+      }
+    });
+    document.getElementById("delete-node").addEventListener("click", async () => {
+      if (editingId == null || !confirm("Delete this node and its routes?")) return;
+      try {
+        await SH.remove("systems", editingId);
+        editor.hidden = true;
+        await load();
+      } catch (err) {
+        msg.className = "msg err";
+        msg.textContent = err.message || "Could not delete";
+      }
+    });
+
+    async function load() {
+      nodes = await SH.list("systems");
+      if (!Array.isArray(nodes)) nodes = [];
+      nodes.sort((a, b) => Number(a.sys_id) - Number(b.sys_id));
+      render();
+    }
+
+    SH.applyNavPermissions().then(load).catch((err) => {
+      listEl.textContent = err.message || "Could not load nodes";
+    });
+  </script>
+</body>
+</html>

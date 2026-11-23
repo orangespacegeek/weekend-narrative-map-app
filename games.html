@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0e0e18" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>Weekend Event – Results</title>
+  <link rel="stylesheet" href="css/site-nav.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <a class="brand" href="index.html">
+        <span class="titles">
+          <span class="brand-kicker">Narrative map</span>
+          <h1>Results</h1>
+        </span>
+      </a>
+      <div class="header-end">
+        <span id="nav-auth"><a class="nav-login" href="login.html">Log in</a></span>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-menu">
+      <a href="index.html">Home</a>
+      <a href="campaign_map.html">Map</a>
+      <a href="games.html">Results</a>
+      <a href="systems.html" data-role="campaign_admin">Nodes</a>
+      <button type="button" id="nav-logout" hidden>Log out</button>
+    </nav>
+  </header>
+  <main class="page">
+    <p class="lede">A reported result waits until the opponent confirms it. The admin records that confirmation for now. Phone reporting with an event code and a per-round QR code comes later.</p>
+    <p class="button-row" data-role="campaign_admin" hidden>
+      <button type="button" id="new-result">Log a result</button>
+    </p>
+    <div id="list" class="stack" style="margin-top:0.9rem"></div>
+    <form id="editor" class="card form-grid" hidden style="margin-top:0.9rem">
+      <h2 id="editor-title">Log a result</h2>
+      <label class="field">Side A
+        <input name="side_a" required maxlength="80" autocomplete="off" />
+      </label>
+      <label class="field">Side B
+        <input name="side_b" required maxlength="80" autocomplete="off" />
+      </label>
+      <label class="field">Node
+        <select name="sys_id" required></select>
+      </label>
+      <label class="field">Result
+        <select name="result">
+          <option value="in_progress">In progress</option>
+          <option value="side_a_win">Side A win</option>
+          <option value="side_b_win">Side B win</option>
+          <option value="draw">Draw</option>
+        </select>
+      </label>
+      <div class="two">
+        <label class="field">Side A VP
+          <input name="side_a_vp" inputmode="numeric" />
+        </label>
+        <label class="field">Side B VP
+          <input name="side_b_vp" inputmode="numeric" />
+        </label>
+      </div>
+      <label class="field">Reported by
+        <select name="reported_by">
+          <option value="admin">Admin</option>
+          <option value="side_a">Side A</option>
+          <option value="side_b">Side B</option>
+        </select>
+      </label>
+      <label class="field">Mission
+        <input name="mission" maxlength="80" />
+      </label>
+      <label class="field">Date
+        <input name="played_on" type="date" />
+      </label>
+      <label class="field">Notes
+        <textarea name="notes" maxlength="500"></textarea>
+      </label>
+      <div class="button-row">
+        <button type="submit">Save result</button>
+        <button type="button" class="ghost" id="cancel-edit">Cancel</button>
+      </div>
+      <p id="msg" class="msg" role="status"></p>
+    </form>
+  </main>
+  <script src="js/api.js"></script>
+  <script>
+    const RESULT_LABEL = {
+      in_progress: "In progress",
+      side_a_win: "Side A win",
+      side_b_win: "Side B win",
+      draw: "Draw"
+    };
+    const STATE_LABEL = {
+      open: "Open",
+      pending: "Waiting on opponent",
+      confirmed: "Confirmed",
+      disputed: "Disputed"
+    };
+    let games = [];
+    let nodes = [];
+    let editingId = null;
+    const listEl = document.getElementById("list");
+    const editor = document.getElementById("editor");
+    const msg = document.getElementById("msg");
+
+    function nodeName(id) {
+      const node = nodes.find((item) => Number(item.sys_id) === Number(id));
+      return node ? node.sys_name : "Node " + id;
+    }
+
+    function fillNodes(selected) {
+      const select = editor.sys_id;
+      select.replaceChildren();
+      nodes.forEach((node) => {
+        const opt = document.createElement("option");
+        opt.value = String(node.sys_id);
+        opt.textContent = node.sys_name;
+        if (Number(node.sys_id) === Number(selected)) opt.selected = true;
+        select.appendChild(opt);
+      });
+    }
+
+    function render() {
+      listEl.replaceChildren();
+      if (!games.length) {
+        const p = document.createElement("p");
+        p.className = "empty";
+        p.textContent = "No results yet.";
+        listEl.appendChild(p);
+        return;
+      }
+      games.forEach((game) => {
+        const card = document.createElement("article");
+        card.className = "card";
+        card.id = "game-" + game.game_id;
+        const title = document.createElement("h2");
+        title.textContent = game.side_a + " vs " + game.side_b;
+        const badge = document.createElement("span");
+        badge.className = "badge " + (game.result_state || "open");
+        badge.textContent = STATE_LABEL[game.result_state] || game.result_state;
+        title.append(" ");
+        title.appendChild(badge);
+        const detail = document.createElement("p");
+        const bits = [nodeName(game.sys_id), RESULT_LABEL[game.result] || game.result];
+        if (game.side_a_vp != null || game.side_b_vp != null) bits.push((game.side_a_vp ?? "–") + "–" + (game.side_b_vp ?? "–"));
+        if (game.reported_by) bits.push("reported by " + game.reported_by.replace("_", " "));
+        if (game.confirmed_by) bits.push("confirmed by " + game.confirmed_by);
+        detail.textContent = bits.join(" · ");
+        card.append(title, detail);
+        if (game.dispute_note) {
+          const note = document.createElement("p");
+          note.textContent = game.dispute_note;
+          card.appendChild(note);
+        }
+        if (SH.isLoggedIn()) {
+          const row = document.createElement("div");
+          row.className = "button-row";
+          row.style.marginTop = "0.7rem";
+          const edit = document.createElement("button");
+          edit.type = "button";
+          edit.className = "ghost";
+          edit.textContent = "Edit";
+          edit.addEventListener("click", () => openEditor(game.game_id));
+          row.appendChild(edit);
+          if (game.result_state === "pending" && (game.reported_by === "side_a" || game.reported_by === "side_b")) {
+            const opp = document.createElement("button");
+            opp.type = "button";
+            opp.textContent = "Opponent confirms";
+            opp.addEventListener("click", () => act(game.game_id, () => SH.confirmGame(game.game_id, "opponent")));
+            row.appendChild(opp);
+          }
+          if (game.result_state === "pending" || game.result_state === "disputed") {
+            const admin = document.createElement("button");
+            admin.type = "button";
+            admin.className = "ghost";
+            admin.textContent = "Admin confirms";
+            admin.addEventListener("click", () => act(game.game_id, () => SH.confirmGame(game.game_id, "admin")));
+            row.appendChild(admin);
+          }
+          if (game.result_state === "pending") {
+            const dispute = document.createElement("button");
+            dispute.type = "button";
+            dispute.className = "ghost";
+            dispute.textContent = "Dispute";
+            dispute.addEventListener("click", () => {
+              const note = prompt("Dispute note", "") || "";
+              act(game.game_id, () => SH.disputeGame(game.game_id, note));
+            });
+            row.appendChild(dispute);
+          }
+          if (["pending", "confirmed", "disputed"].includes(game.result_state)) {
+            const wipe = document.createElement("button");
+            wipe.type = "button";
+            wipe.className = "danger";
+            wipe.textContent = "Clear result";
+            wipe.addEventListener("click", () => act(game.game_id, () => SH.voidGame(game.game_id)));
+            row.appendChild(wipe);
+          }
+          card.appendChild(row);
+        }
+        listEl.appendChild(card);
+      });
+    }
+
+    async function act(id, fn) {
+      try {
+        await fn();
+        await load();
+        const card = document.getElementById("game-" + id);
+        if (card) card.scrollIntoView({ block: "nearest" });
+      } catch (err) {
+        alert(err.message || "Could not update the result");
+      }
+    }
+
+    function openEditor(id) {
+      editingId = id == null ? null : Number(id);
+      const game = games.find((item) => Number(item.game_id) === editingId);
+      editor.hidden = false;
+      document.getElementById("editor-title").textContent = game ? "Edit result" : "Log a result";
+      editor.side_a.value = game ? game.side_a : "";
+      editor.side_b.value = game ? game.side_b : "";
+      editor.result.value = game ? game.result : "in_progress";
+      editor.side_a_vp.value = game && game.side_a_vp != null ? game.side_a_vp : "";
+      editor.side_b_vp.value = game && game.side_b_vp != null ? game.side_b_vp : "";
+      editor.reported_by.value = game && game.reported_by ? game.reported_by : "admin";
+      editor.mission.value = game ? game.mission || "" : "";
+      editor.played_on.value = game ? game.played_on || "" : "";
+      editor.notes.value = game ? game.notes || "" : "";
+      fillNodes(game ? game.sys_id : nodes[0] && nodes[0].sys_id);
+      msg.textContent = "";
+      editor.scrollIntoView({ block: "nearest" });
+    }
+
+    document.getElementById("new-result").addEventListener("click", () => openEditor(null));
+    document.getElementById("cancel-edit").addEventListener("click", () => {
+      editor.hidden = true;
+    });
+    editor.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const row = {
+        side_a: editor.side_a.value,
+        side_b: editor.side_b.value,
+        sys_id: editor.sys_id.value,
+        result: editor.result.value,
+        side_a_vp: editor.side_a_vp.value,
+        side_b_vp: editor.side_b_vp.value,
+        reported_by: editor.reported_by.value,
+        mission: editor.mission.value,
+        played_on: editor.played_on.value,
+        notes: editor.notes.value
+      };
+      if (editingId != null) row.game_id = editingId;
+      msg.className = "msg";
+      msg.textContent = "Saving…";
+      try {
+        await SH.save("games", row);
+        editor.hidden = true;
+        await load();
+      } catch (err) {
+        msg.className = "msg err";
+        msg.textContent = err.message || "Could not save";
+      }
+    });
+
+    async function load() {
+      const [gameRows, nodeRows] = await Promise.all([SH.list("games"), SH.list("systems")]);
+      games = Array.isArray(gameRows) ? gameRows.slice().sort((a, b) => Number(b.game_id) - Number(a.game_id)) : [];
+      nodes = Array.isArray(nodeRows) ? nodeRows : [];
+      render();
+    }
+
+    SH.applyNavPermissions().then(load).catch((err) => {
+      listEl.textContent = err.message || "Could not load results";
+    });
+  </script>
+</body>
+</html>

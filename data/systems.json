@@ -1,0 +1,50 @@
+[
+  {
+    "sys_id": 1,
+    "sys_name": "Crossing",
+    "sys_links": "2,3,4",
+    "sys_notes": "Centre of the map.",
+    "sys_x": 400,
+    "sys_y": 270
+  },
+  {
+    "sys_id": 2,
+    "sys_name": "North Spur",
+    "sys_links": "1,5",
+    "sys_notes": "",
+    "sys_x": 530,
+    "sys_y": 150
+  },
+  {
+    "sys_id": 3,
+    "sys_name": "East Gate",
+    "sys_links": "1,6",
+    "sys_notes": "",
+    "sys_x": 640,
+    "sys_y": 320
+  },
+  {
+    "sys_id": 4,
+    "sys_name": "West Gate",
+    "sys_links": "1,5",
+    "sys_notes": "",
+    "sys_x": 230,
+    "sys_y": 200
+  },
+  {
+    "sys_id": 5,
+    "sys_name": "High Pass",
+    "sys_links": "2,4",
+    "sys_notes": "",
+    "sys_x": 380,
+    "sys_y": 70
+  },
+  {
+    "sys_id": 6,
+    "sys_name": "South Reach",
+    "sys_links": "3",
+    "sys_notes": "",
+    "sys_x": 520,
+    "sys_y": 450
+  }
+]
