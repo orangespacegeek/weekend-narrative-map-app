@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0e0e18" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <meta name="description" content="Phone-first map and result board for a one-weekend Horus Heresy narrative tournament." />
+  <title>Weekend Event</title>
+  <link rel="stylesheet" href="css/site-nav.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <a class="brand" href="index.html">
+        <span class="titles">
+          <span class="brand-kicker">Narrative map</span>
+          <h1 data-event-name>Weekend Event</h1>
+        </span>
+      </a>
+      <div class="header-end">
+        <span id="nav-auth"><a class="nav-login" href="login.html">Log in</a></span>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-menu">
+      <a href="index.html">Home</a>
+      <a href="campaign_map.html">Map</a>
+      <a href="games.html">Results</a>
+      <a href="systems.html" data-role="campaign_admin">Nodes</a>
+      <button type="button" id="nav-logout" hidden>Log out</button>
+    </nav>
+  </header>
+  <main class="page">
+    <p class="lede" data-event-blurb>A one-weekend Horus Heresy narrative tournament.</p>
+    <div class="stat-row">
+      <a class="stat" href="campaign_map.html"><div class="num" id="count-nodes">—</div><div class="label">Nodes</div></a>
+      <a class="stat" href="games.html"><div class="num" id="count-results">—</div><div class="label">Results</div></a>
+    </div>
+    <div class="stack" style="margin-top:0.9rem">
+      <a class="card" href="campaign_map.html">
+        <h2>Map</h2>
+        <p>Nodes and the routes between them. Pinch to zoom on a phone.</p>
+      </a>
+      <a class="card" href="games.html">
+        <h2>Results</h2>
+        <p>Reported games stay pending until the opponent confirms. The admin can record that confirmation.</p>
+      </a>
+      <section class="card" data-role="campaign_admin" hidden>
+        <h2>Admin</h2>
+        <p>Edit nodes and routes, or log a result that is still waiting on the opponent.</p>
+        <p class="button-row" style="margin-top:0.7rem">
+          <a class="button" href="systems.html">Edit nodes</a>
+          <a class="button ghost" href="games.html">Log a result</a>
+        </p>
+      </section>
+    </div>
+  </main>
+  <script src="js/api.js"></script>
+  <script>
+    SH.applyNavPermissions().then(async () => {
+      try {
+        const counts = await fetch("/api/public/counts", { cache: "no-store" }).then((res) => res.json());
+        document.getElementById("count-nodes").textContent = counts.nodes ?? "0";
+        document.getElementById("count-results").textContent = counts.results ?? "0";
+      } catch (_) {}
+    });
+  </script>
+</body>
+</html>
