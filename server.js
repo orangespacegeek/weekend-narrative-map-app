@@ -1587,19 +1587,19 @@ async function handleGenerateRound(req, res, method, idPart) {
   if (mine.some((pairing) => pairing.state === "published")) {
     return send(res, 409, { error: "Published pairings stay. Clear them before generating again." });
   }
-  const generated = swiss.generateSwiss({
-    players: readList("players.json"),
-    pairings,
-    results: readList("results.json"),
-    roundId,
-    seed: body.seed
-  });
-  if (!generated.ok) return send(res, 409, { error: generated.error, warnings: generated.warnings || [] });
   const removed = new Set(
     mine.filter((pairing) => pairing.kind !== "apex" && pairing.kind !== "grudge").map((pairing) => Number(pairing.pairing_id))
   );
   pairings = pairings.filter((pairing) => !removed.has(Number(pairing.pairing_id)));
-  let results = readList("results.json").filter((result) => !removed.has(Number(result.pairing_id)));
+  const results = readList("results.json").filter((result) => !removed.has(Number(result.pairing_id)));
+  const generated = swiss.generateSwiss({
+    players: readList("players.json"),
+    pairings,
+    results,
+    roundId,
+    seed: body.seed
+  });
+  if (!generated.ok) return send(res, 409, { error: generated.error, warnings: generated.warnings || [] });
   const made = [];
   generated.byes.forEach((player) => {
     const pairing = {
@@ -1614,9 +1614,6 @@ async function handleGenerateRound(req, res, method, idPart) {
       traitor_id: player.faction === "Traitor" ? player.player_id : null
     };
     pairings.push(pairing);
-    const result = byeResult(pairing);
-    result.result_id = nextId(results, "result_id");
-    results.push(result);
     made.push(pairing);
   });
   generated.pairs.forEach(([loyalist, traitor]) => {
@@ -1655,6 +1652,17 @@ async function handleRoundState(req, res, method, idPart, target) {
     if (target === "published" && pairing.state === "approved") pairing.state = "published";
   });
   writeJsonFile("pairings.json", pairings);
+  if (target === "published") {
+    const results = readList("results.json");
+    mine.forEach((pairing) => {
+      if (pairing.kind !== "bye" || pairing.state !== "published") return;
+      if (results.some((result) => Number(result.pairing_id) === Number(pairing.pairing_id))) return;
+      const result = byeResult(pairing);
+      result.result_id = nextId(results, "result_id");
+      results.push(result);
+    });
+    writeJsonFile("results.json", results);
+  }
   return send(res, 200, { pairings: mine });
 }
 
@@ -1705,7 +1713,17 @@ async function handlePairings(req, res, method, idPart) {
 async function handleEventResults(req, res, method, idPart, action) {
   const list = readList("results.json");
   if (method === "GET" && !action) {
-    const rows = list.map(model.withCampaignPoints);
+    const gate = requireAdmin(req);
+    let source = list;
+    if (!gate.ok) {
+      const published = new Set(
+        readList("pairings.json")
+          .filter((pairing) => pairing.state === "published")
+          .map((pairing) => Number(pairing.pairing_id))
+      );
+      source = list.filter((result) => published.has(Number(result.pairing_id)));
+    }
+    const rows = source.map(model.withCampaignPoints);
     if (idPart == null) return send(res, 200, rows);
     const row = rows.find((result) => String(result.result_id) === String(idPart));
     if (!row) return send(res, 404, { error: "Not found" });

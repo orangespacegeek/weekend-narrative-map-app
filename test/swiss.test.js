@@ -170,6 +170,163 @@ test("draft pairings stay private until the organiser publishes them", async () 
   }
 });
 
+function seats(pairings, players) {
+  const name = (id) => {
+    const player = players.find((row) => Number(row.player_id) === Number(id));
+    return player ? player.display_name : "";
+  };
+  return pairings
+    .map((pairing) => {
+      if (pairing.kind === "bye") return "bye:" + name(pairing.loyalist_id || pairing.traitor_id);
+      return pairing.kind + ":" + name(pairing.loyalist_id) + ":" + name(pairing.traitor_id);
+    })
+    .sort();
+}
+
+test("visitors see no bye result until the round is published", async () => {
+  const ctx = startServer();
+  try {
+    await ctx.ready;
+    const headers = await admin(ctx.base);
+    const imported = await (await fetch(ctx.base + "/api/players/import", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text: "L-01,Loyalist,Iron Hands\nL-02,Loyalist,Ultramarines\nT-01,Traitor,Night Lords" })
+    })).json();
+    const players = imported.added;
+    const round = await (await fetch(ctx.base + "/api/rounds", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ number: 1 })
+    })).json();
+    const generated = await (await fetch(ctx.base + "/api/rounds/" + round.round_id + "/pair", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ seed: 1 })
+    })).json();
+    const bye = generated.pairings.find((pairing) => pairing.kind === "bye");
+    assert.ok(bye);
+    const game = generated.pairings.find((pairing) => pairing.kind === "normal");
+    const scored = await fetch(ctx.base + "/api/results", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        pairing_id: game.pairing_id,
+        round_id: round.round_id,
+        loyalist_vp: 12,
+        traitor_vp: 8,
+        reported_by: "admin",
+        confirmation: "confirmed",
+        confirmed_by: "admin"
+      })
+    });
+    assert.equal(scored.status, 201);
+    const publicPairings = await (await fetch(ctx.base + "/api/pairings")).json();
+    const publicResults = await (await fetch(ctx.base + "/api/results")).json();
+    const adminResults = await (await fetch(ctx.base + "/api/results", { headers })).json();
+    assert.equal(publicPairings.some((pairing) => pairing.kind === "bye"), false);
+    assert.deepEqual(publicResults, []);
+    assert.equal(adminResults.some((result) => result.outcome === "bye"), false);
+    assert.equal(adminResults.length, 1);
+    const hidden = await fetch(ctx.base + "/api/results/" + adminResults[0].result_id);
+    assert.equal(hidden.status, 404);
+    await fetch(ctx.base + "/api/rounds/" + round.round_id + "/approve", { method: "POST", headers, body: "{}" });
+    const published = await fetch(ctx.base + "/api/rounds/" + round.round_id + "/publish", { method: "POST", headers, body: "{}" });
+    assert.equal(published.status, 200);
+    const visiblePairings = await (await fetch(ctx.base + "/api/pairings")).json();
+    const visibleResults = await (await fetch(ctx.base + "/api/results")).json();
+    assert.equal(visiblePairings.some((pairing) => pairing.kind === "bye"), true);
+    const byeResult = visibleResults.find((result) => result.outcome === "bye");
+    assert.ok(byeResult);
+    const byePlayer = players.find((player) => Number(player.player_id) === Number(bye.loyalist_id || bye.traitor_id));
+    const vp = byePlayer.faction === "Loyalist" ? byeResult.loyalist_vp : byeResult.traitor_vp;
+    assert.equal(vp, 10);
+    assert.equal(visibleResults.length, 2);
+    const open = await fetch(ctx.base + "/api/results/" + byeResult.result_id);
+    assert.equal(open.status, 200);
+  } finally {
+    await ctx.stop();
+  }
+});
+
+test("regenerating a draft matches a fresh pairing", async () => {
+  const ctx = startServer();
+  try {
+    await ctx.ready;
+    const headers = await admin(ctx.base);
+    const imported = await (await fetch(ctx.base + "/api/players/import", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        text: "L-01,Loyalist\nL-02,Loyalist\nL-03,Loyalist\nT-01,Traitor\nT-02,Traitor\nT-03,Traitor"
+      })
+    })).json();
+    const id = (display) => imported.added.find((player) => player.display_name === display).player_id;
+    const round = await (await fetch(ctx.base + "/api/rounds", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ number: 1 })
+    })).json();
+    await fetch(ctx.base + "/api/pairings", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        round_id: round.round_id,
+        kind: "grudge",
+        state: "draft",
+        loyalist_id: id("L-01"),
+        traitor_id: id("T-01")
+      })
+    });
+    const pair = () => fetch(ctx.base + "/api/rounds/" + round.round_id + "/pair", {
+      method: "POST",
+      headers,
+      body: "{}"
+    });
+    assert.equal((await pair()).status, 200);
+    const fresh = await (await fetch(ctx.base + "/api/pairings", { headers })).json();
+    assert.equal((await pair()).status, 200);
+    const again = await (await fetch(ctx.base + "/api/pairings", { headers })).json();
+    const expected = ["grudge:L-01:T-01", "normal:L-02:T-02", "normal:L-03:T-03"];
+    assert.deepEqual(seats(fresh, imported.added), expected);
+    assert.deepEqual(seats(again, imported.added), expected);
+    assert.equal(again.filter((pairing) => pairing.kind === "grudge").length, 1);
+  } finally {
+    await ctx.stop();
+  }
+
+  const byeCtx = startServer();
+  try {
+    await byeCtx.ready;
+    const headers = await admin(byeCtx.base);
+    const imported = await (await fetch(byeCtx.base + "/api/players/import", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ text: "L-01,Loyalist\nL-02,Loyalist\nT-01,Traitor" })
+    })).json();
+    const round = await (await fetch(byeCtx.base + "/api/rounds", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ number: 1 })
+    })).json();
+    const pair = () => fetch(byeCtx.base + "/api/rounds/" + round.round_id + "/pair", {
+      method: "POST",
+      headers,
+      body: "{}"
+    });
+    const fresh = await (await pair()).json();
+    const again = await (await pair()).json();
+    assert.deepEqual(seats(fresh.pairings, imported.added), ["bye:L-02", "normal:L-01:T-01"]);
+    assert.deepEqual(seats(again.pairings, imported.added), ["bye:L-02", "normal:L-01:T-01"]);
+    const stored = await (await fetch(byeCtx.base + "/api/pairings", { headers })).json();
+    assert.equal(stored.filter((pairing) => pairing.kind === "bye").length, 1);
+    const results = await (await fetch(byeCtx.base + "/api/results", { headers })).json();
+    assert.deepEqual(results, []);
+  } finally {
+    await byeCtx.stop();
+  }
+});
+
 test("an army that looks like an email or a phone number is rejected", async () => {
   const ctx = startServer();
   try {
