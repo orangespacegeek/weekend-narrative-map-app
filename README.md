@@ -61,7 +61,7 @@ A fresh `DATA_DIR` with no `systems.json` is seeded from `data/baseline/systems.
 Each later change is its own small PR.
 
 1. **Import and strip** (this PR). Server, admin login, node-and-route map, result confirmation, phone pages, tests.
-2. **Data model.** Event, rounds, players-as-entries, matches, and scores, without accounts.
+2. **Data model.** Event, map areas, entrants, rounds, pairings, results, and area control. See [docs/data-model.md](docs/data-model.md).
 3. **Area map.** Admin zone editor on an uploaded map image, on top of the node map.
 4. **Registration and roster.** Check-in list, plus Apex and Grudge match entry. No real names committed to the repo.
 5. **Swiss pairing.** Pairing engine and a review step for the organiser.
@@ -74,6 +74,8 @@ Each later change is its own small PR.
 ## Project layout
 
 - `server.js` — API and static server
+- `lib/model.js` — event data model and validation
+- [docs/data-model.md](docs/data-model.md) — store layout
 - `index.html` — home
 - `campaign_map.html`, `js/map.js` — node-and-route map
 - `systems.html` — node and route editor

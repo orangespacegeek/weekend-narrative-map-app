@@ -101,8 +101,10 @@ const SESSION_DAYS = 14;
 // The old prototype password was published in the source repo. It is never a fallback.
 const PUBLISHED_ADMIN_PASSWORD = "change-me";
 
-// Node-and-route map. sys_id / sys_links are the imported map field names.
-// PR 2 (data model) can rename them when the event schema lands.
+const model = require("./lib/model");
+
+// systems.json is still the seed file and the shape the current map page edits.
+// map.json is the event area list (area_id, routes, tables, scenario).
 const COLLECTIONS = {
   systems: { file: "systems.json", idKey: "sys_id" },
   games: { file: "games.json", idKey: "game_id" },
@@ -283,8 +285,8 @@ function takeAdminPassword(login) {
 }
 
 function bootstrapAdmin() {
-  const accounts = readCollection("accounts").filter((row) => row && row.role === "campaign_admin");
-  let admin = accounts.find((a) => a.role === "campaign_admin");
+  const accounts = readCollection("accounts").filter((row) => row && model.isAdminRole(row.role));
+  let admin = accounts.find((row) => model.isAdminRole(row.role));
   const login = process.env.CAMPAIGN_ADMIN_LOGIN || "admin";
   const envPassword = process.env.CAMPAIGN_ADMIN_PASSWORD;
   const forceFlag = String(process.env.CAMPAIGN_ADMIN_FORCE_PASSWORD || "").toLowerCase();
@@ -295,7 +297,7 @@ function bootstrapAdmin() {
     const { salt, hash } = hashPassword(password);
     admin = {
       account_id: nextId(accounts, "account_id"),
-      role: "campaign_admin",
+      role: model.CANONICAL_ADMIN_ROLE,
       label: "Event admin",
       login,
       pass_hash: hash,
@@ -311,6 +313,8 @@ function bootstrapAdmin() {
   }
 
   const previousLogin = admin.login;
+  const previousRole = admin.role;
+  admin.role = model.CANONICAL_ADMIN_ROLE;
   admin.login = admin.login || login;
   if (process.env.CAMPAIGN_ADMIN_LOGIN) admin.login = login;
 
@@ -338,7 +342,7 @@ function bootstrapAdmin() {
     return;
   }
 
-  if (admin.login !== previousLogin) writeCollection("accounts", accounts);
+  if (admin.login !== previousLogin || admin.role !== previousRole) writeCollection("accounts", accounts);
 
   if (isProduction() && verifyPassword(PUBLISHED_ADMIN_PASSWORD, admin.pass_salt, admin.pass_hash)) {
     console.warn(
@@ -374,7 +378,7 @@ function getSession(req) {
   const session = live.find((s) => s.token === token);
   if (!session) return null;
   const account = readCollection("accounts").find((a) => a && a.account_id === session.account_id);
-  if (!account || account.role !== "campaign_admin") return null;
+  if (!account || !model.isAdminRole(account.role)) return null;
   return { token, session, account };
 }
 
@@ -581,7 +585,7 @@ function readBody(req) {
 function requireAdmin(req) {
   const auth = getSession(req);
   if (!auth) return { ok: false, status: 401, error: "Login required" };
-  if (auth.account.role !== "campaign_admin") return { ok: false, status: 403, error: "Admin only" };
+  if (!model.isAdminRole(auth.account.role)) return { ok: false, status: 403, error: "Admin only" };
   return { ok: true, auth };
 }
 
@@ -735,11 +739,16 @@ async function handleAuth(req, res, parts, method) {
       });
     }
     if (!body.login) return send(res, 400, { error: "Provide login and password" });
-    const account = readCollection("accounts").find(
+    const accounts = readCollection("accounts");
+    const account = accounts.find(
       (a) => a && String(a.login || "").toLowerCase() === String(body.login).trim().toLowerCase()
     );
-    if (!account || account.role !== "campaign_admin" || passwordLoginRejected(account, body.password)) {
+    if (!account || !model.isAdminRole(account.role) || passwordLoginRejected(account, body.password)) {
       return send(res, 401, { error: "Invalid login or password" });
+    }
+    if (account.role !== model.CANONICAL_ADMIN_ROLE) {
+      account.role = model.CANONICAL_ADMIN_ROLE;
+      writeCollection("accounts", accounts);
     }
     const { token, expires } = createSession(account.account_id);
     return send(res, 200, { ok: true, token, expires_at: expires.toISOString(), ...mePayload(account) }, {
@@ -1017,6 +1026,97 @@ async function voidResult(req, res, idPart) {
   return send(res, 200, publicGame(game));
 }
 
+function readJsonFile(name, fallback) {
+  const fp = path.join(DATA, name);
+  if (!fs.existsSync(fp)) return fallback;
+  return JSON.parse(fs.readFileSync(fp, "utf8"));
+}
+
+function writeJsonFile(name, data) {
+  ensureDataDir();
+  atomicWrite(path.join(DATA, name), JSON.stringify(data, null, 2) + "\n");
+}
+
+function readMapFile() {
+  const map = readJsonFile("map.json", null);
+  if (!map || typeof map !== "object" || !Array.isArray(map.areas)) return { image: null, areas: [] };
+  return { image: map.image || null, areas: map.areas };
+}
+
+function writeMapFile(map) {
+  writeJsonFile("map.json", { image: map.image || null, areas: map.areas || [] });
+}
+
+function syncMapFromSystems(systems) {
+  const map = readMapFile();
+  const previous = new Map(map.areas.map((area) => [Number(area.area_id), area]));
+  const areas = systems.map((sys) => model.mergeSystemEdit(previous.get(Number(sys.sys_id)), model.areaFromSystem(sys)));
+  writeMapFile({ image: map.image, areas });
+}
+
+function persistSystems(list) {
+  writeCollection("systems", list);
+  syncMapFromSystems(list);
+}
+
+function syncSystemsFromAreas(areas) {
+  writeCollection("systems", areas.map(model.systemFromArea));
+}
+
+function readList(name) {
+  const data = readJsonFile(name, []);
+  return Array.isArray(data) ? data : [];
+}
+
+function migrateImportedMap() {
+  if (fs.existsSync(path.join(DATA, "map.json"))) return false;
+  const systemsPath = path.join(DATA, "systems.json");
+  if (!fs.existsSync(systemsPath)) return false;
+  const systems = JSON.parse(fs.readFileSync(systemsPath, "utf8"));
+  if (!Array.isArray(systems) || !systems.length) return false;
+  writeMapFile({ image: null, areas: systems.map(model.areaFromSystem) });
+  console.log("Migrated " + systems.length + " areas from systems.json");
+  return true;
+}
+
+function ensureEvent() {
+  const existing = readJsonFile("event.json", null);
+  const meta = readJsonFile("meta.json", null);
+  if (!existing) {
+    const event = model.defaultEvent({
+      name: meta && meta.event_name,
+      blurb: meta && meta.blurb
+    });
+    writeJsonFile("event.json", event);
+    return event;
+  }
+  const checked = model.validateEvent(existing, existing);
+  const event = checked.ok ? checked.value : model.defaultEvent(existing);
+  if (!existing.event_code) event.event_code = model.generateEventCode();
+  else event.event_code = existing.event_code;
+  if (JSON.stringify(event) !== JSON.stringify(existing)) writeJsonFile("event.json", event);
+  return event;
+}
+
+function eventContext() {
+  return {
+    event: readJsonFile("event.json", model.defaultEvent()),
+    areas: readMapFile().areas,
+    players: readList("players.json"),
+    rounds: readList("rounds.json"),
+    pairings: readList("pairings.json"),
+    results: readList("results.json"),
+    control: readList("control.json")
+  };
+}
+
+function duplicateName(players, name, exceptId) {
+  const key = String(name || "").toLowerCase();
+  return players.some(
+    (player) => Number(player.player_id) !== Number(exceptId) && String(player.display_name || "").toLowerCase() === key
+  );
+}
+
 async function handleSystemsWrite(req, res, method, idPart) {
   const gate = requireAdmin(req);
   if (!gate.ok) return send(res, gate.status, { error: gate.error });
@@ -1027,7 +1127,7 @@ async function handleSystemsWrite(req, res, method, idPart) {
     if (idx < 0) return send(res, 404, { error: "Not found" });
     const removed = list[idx].sys_id;
     const next = stripLink(list.filter((_, i) => i !== idx), removed);
-    writeCollection("systems", next);
+    persistSystems(next);
     return send(res, 200, { ok: true, deleted: removed });
   }
 
@@ -1041,7 +1141,7 @@ async function handleSystemsWrite(req, res, method, idPart) {
     }
     const row = { sys_id: id, ...cleaned.value, sys_links: cleaned.links.filter((n) => n !== id).join(",") };
     list.push(row);
-    writeCollection("systems", list);
+    persistSystems(list);
     return send(res, 201, row);
   }
 
@@ -1057,7 +1157,7 @@ async function handleSystemsWrite(req, res, method, idPart) {
     }
     const row = { sys_id: id, ...cleaned.value, sys_links: links.join(",") };
     list[idx] = row;
-    writeCollection("systems", list);
+    persistSystems(list);
     return send(res, 200, row);
   }
 
@@ -1113,6 +1213,322 @@ async function handleMetaWrite(req, res) {
   return send(res, 200, next);
 }
 
+async function handleEvent(req, res, method) {
+  if (method === "GET") {
+    const event = readJsonFile("event.json", null) || ensureEvent();
+    const gate = requireAdmin(req);
+    return send(res, 200, gate.ok ? event : model.publicEvent(event));
+  }
+  if (method === "PUT") {
+    const gate = requireAdmin(req);
+    if (!gate.ok) return send(res, gate.status, { error: gate.error });
+    const body = (await readBody(req)) || {};
+    const existing = readJsonFile("event.json", null) || ensureEvent();
+    const checked = model.validateEvent(body, existing);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    checked.value.event_code = existing.event_code;
+    writeJsonFile("event.json", checked.value);
+    writeJsonFile("meta.json", { event_name: checked.value.name, blurb: checked.value.blurb });
+    return send(res, 200, checked.value);
+  }
+  return send(res, 405, { error: "Method not allowed" });
+}
+
+async function handleMapImage(req, res, method) {
+  if (method === "GET") return send(res, 200, readMapFile());
+  if (method !== "PUT") return send(res, 405, { error: "Method not allowed" });
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  const body = (await readBody(req)) || {};
+  const image = model.validateImage(body.image);
+  if (!image.ok) return send(res, 400, { error: image.error });
+  const map = readMapFile();
+  map.image = image.value;
+  writeMapFile(map);
+  return send(res, 200, map);
+}
+
+async function handleAreas(req, res, method, idPart) {
+  const map = readMapFile();
+  if (method === "GET") {
+    if (idPart == null) return send(res, 200, map.areas);
+    const area = map.areas.find((row) => String(row.area_id) === String(idPart));
+    if (!area) return send(res, 404, { error: "Not found" });
+    return send(res, 200, area);
+  }
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  if (method === "DELETE") {
+    const idx = map.areas.findIndex((row) => String(row.area_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    const removed = Number(map.areas[idx].area_id);
+    if (readList("pairings.json").some((pairing) => Number(pairing.area_id) === removed)) {
+      return send(res, 409, { error: "An area used by a pairing cannot be deleted" });
+    }
+    const areas = map.areas
+      .filter((row) => Number(row.area_id) !== removed)
+      .map((row) => ({ ...row, routes: (row.routes || []).filter((id) => Number(id) !== removed) }));
+    writeMapFile({ image: map.image, areas });
+    syncSystemsFromAreas(areas);
+    return send(res, 200, { ok: true, deleted: removed });
+  }
+  const body = (await readBody(req)) || {};
+  const known = new Set(map.areas.map((row) => Number(row.area_id)));
+  if (method === "POST" && idPart == null) {
+    const checked = model.validateArea(body, null, known);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    checked.value.area_id = nextId(map.areas, "area_id");
+    checked.value.routes = checked.value.routes.filter((id) => id !== checked.value.area_id);
+    map.areas.push(checked.value);
+    writeMapFile(map);
+    syncSystemsFromAreas(map.areas);
+    return send(res, 201, checked.value);
+  }
+  if (method === "PUT" && idPart != null) {
+    const idx = map.areas.findIndex((row) => String(row.area_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    const checked = model.validateArea(body, map.areas[idx], known);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    checked.value.area_id = map.areas[idx].area_id;
+    map.areas[idx] = checked.value;
+    writeMapFile(map);
+    syncSystemsFromAreas(map.areas);
+    return send(res, 200, checked.value);
+  }
+  return send(res, 405, { error: "Method not allowed" });
+}
+
+async function handlePlayers(req, res, method, idPart) {
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  const list = readList("players.json");
+  if (method === "GET") {
+    if (idPart == null) return send(res, 200, list);
+    const row = list.find((player) => String(player.player_id) === String(idPart));
+    if (!row) return send(res, 404, { error: "Not found" });
+    return send(res, 200, row);
+  }
+  if (method === "DELETE") {
+    const id = Number(idPart);
+    if (!list.some((player) => Number(player.player_id) === id)) return send(res, 404, { error: "Not found" });
+    const used = readList("pairings.json").some(
+      (pairing) => Number(pairing.loyalist_id) === id || Number(pairing.traitor_id) === id
+    );
+    if (used) return send(res, 409, { error: "An entrant who is already paired cannot be deleted" });
+    writeJsonFile("players.json", list.filter((player) => Number(player.player_id) !== id));
+    return send(res, 200, { ok: true, deleted: id });
+  }
+  const body = (await readBody(req)) || {};
+  if (method === "POST" && idPart == null) {
+    const checked = model.validatePlayer(body, null);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    if (duplicateName(list, checked.value.display_name)) return send(res, 409, { error: "That display name is already in use" });
+    checked.value.player_id = nextId(list, "player_id");
+    list.push(checked.value);
+    writeJsonFile("players.json", list);
+    return send(res, 201, checked.value);
+  }
+  if (method === "PUT" && idPart != null) {
+    const idx = list.findIndex((player) => String(player.player_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    const checked = model.validatePlayer(body, list[idx]);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    if (duplicateName(list, checked.value.display_name, list[idx].player_id)) {
+      return send(res, 409, { error: "That display name is already in use" });
+    }
+    checked.value.player_id = list[idx].player_id;
+    list[idx] = checked.value;
+    writeJsonFile("players.json", list);
+    return send(res, 200, checked.value);
+  }
+  return send(res, 405, { error: "Method not allowed" });
+}
+
+async function handleRounds(req, res, method, idPart) {
+  const list = readList("rounds.json");
+  if (method === "GET") {
+    const gate = requireAdmin(req);
+    const rows = gate.ok ? list : list.map(model.publicRound);
+    if (idPart == null) return send(res, 200, rows);
+    const row = rows.find((round) => String(round.round_id) === String(idPart));
+    if (!row) return send(res, 404, { error: "Not found" });
+    return send(res, 200, row);
+  }
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  if (method === "DELETE") {
+    const id = Number(idPart);
+    if (!list.some((round) => Number(round.round_id) === id)) return send(res, 404, { error: "Not found" });
+    if (readList("pairings.json").some((pairing) => Number(pairing.round_id) === id)) {
+      return send(res, 409, { error: "A round that already has pairings cannot be deleted" });
+    }
+    writeJsonFile("rounds.json", list.filter((round) => Number(round.round_id) !== id));
+    return send(res, 200, { ok: true, deleted: id });
+  }
+  const body = (await readBody(req)) || {};
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  if (method === "POST" && idPart == null) {
+    const checked = model.validateRound(body, null, event);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    if (list.some((round) => Number(round.number) === checked.value.number)) {
+      return send(res, 409, { error: "That round already exists" });
+    }
+    checked.value.round_id = nextId(list, "round_id");
+    list.push(checked.value);
+    writeJsonFile("rounds.json", list);
+    return send(res, 201, checked.value);
+  }
+  if (method === "PUT" && idPart != null) {
+    const idx = list.findIndex((round) => String(round.round_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    const checked = model.validateRound(body, list[idx], event);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    if (list.some((round, i) => i !== idx && Number(round.number) === checked.value.number)) {
+      return send(res, 409, { error: "That round already exists" });
+    }
+    checked.value.round_id = list[idx].round_id;
+    checked.value.qr_token = list[idx].qr_token;
+    list[idx] = checked.value;
+    writeJsonFile("rounds.json", list);
+    return send(res, 200, checked.value);
+  }
+  return send(res, 405, { error: "Method not allowed" });
+}
+
+async function handlePairings(req, res, method, idPart) {
+  const list = readList("pairings.json");
+  if (method === "GET") {
+    const gate = requireAdmin(req);
+    const rows = gate.ok ? list : list.map(model.publicPairing).filter(Boolean);
+    if (idPart == null) return send(res, 200, rows);
+    const row = rows.find((pairing) => String(pairing.pairing_id) === String(idPart));
+    if (!row) return send(res, 404, { error: "Not found" });
+    return send(res, 200, row);
+  }
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  if (method === "DELETE") {
+    const id = Number(idPart);
+    if (!list.some((pairing) => Number(pairing.pairing_id) === id)) return send(res, 404, { error: "Not found" });
+    if (readList("results.json").some((result) => Number(result.pairing_id) === id)) {
+      return send(res, 409, { error: "A pairing that already has a result cannot be deleted" });
+    }
+    writeJsonFile("pairings.json", list.filter((pairing) => Number(pairing.pairing_id) !== id));
+    return send(res, 200, { ok: true, deleted: id });
+  }
+  const body = (await readBody(req)) || {};
+  const ctx = eventContext();
+  if (method === "POST" && idPart == null) {
+    const checked = model.validatePairing(body, null, ctx);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    checked.value.pairing_id = nextId(list, "pairing_id");
+    list.push(checked.value);
+    writeJsonFile("pairings.json", list);
+    return send(res, 201, checked.value);
+  }
+  if (method === "PUT" && idPart != null) {
+    const idx = list.findIndex((pairing) => String(pairing.pairing_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    const checked = model.validatePairing(body, list[idx], ctx);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    checked.value.pairing_id = list[idx].pairing_id;
+    list[idx] = checked.value;
+    writeJsonFile("pairings.json", list);
+    return send(res, 200, checked.value);
+  }
+  return send(res, 405, { error: "Method not allowed" });
+}
+
+async function handleEventResults(req, res, method, idPart, action) {
+  const list = readList("results.json");
+  if (method === "GET" && !action) {
+    const rows = list.map(model.withCampaignPoints);
+    if (idPart == null) return send(res, 200, rows);
+    const row = rows.find((result) => String(result.result_id) === String(idPart));
+    if (!row) return send(res, 404, { error: "Not found" });
+    return send(res, 200, row);
+  }
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  if (method === "POST" && action === "confirm") {
+    const idx = list.findIndex((result) => String(result.result_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    const body = (await readBody(req)) || {};
+    const as = body.as === "opponent" ? "opponent" : "admin";
+    const current = list[idx];
+    if (current.confirmation !== "pending" && !(current.confirmation === "disputed" && as === "admin")) {
+      return send(res, 409, { error: "This result is not waiting for confirmation" });
+    }
+    const checked = model.validateResult(
+      { ...current, confirmation: "confirmed", confirmed_by: as },
+      current,
+      eventContext()
+    );
+    if (!checked.ok) return send(res, 409, { error: checked.error });
+    checked.value.result_id = current.result_id;
+    list[idx] = checked.value;
+    writeJsonFile("results.json", list);
+    return send(res, 200, checked.value);
+  }
+  if (method === "POST" && action === "dispute") {
+    const idx = list.findIndex((result) => String(result.result_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    if (list[idx].confirmation !== "pending") return send(res, 409, { error: "Only a pending result can be disputed" });
+    list[idx] = { ...list[idx], confirmation: "disputed", confirmed_by: null };
+    writeJsonFile("results.json", list);
+    return send(res, 200, list[idx]);
+  }
+  if (method === "DELETE") {
+    const id = Number(idPart);
+    if (!list.some((result) => Number(result.result_id) === id)) return send(res, 404, { error: "Not found" });
+    writeJsonFile("results.json", list.filter((result) => Number(result.result_id) !== id));
+    return send(res, 200, { ok: true, deleted: id });
+  }
+  const body = (await readBody(req)) || {};
+  const ctx = eventContext();
+  if (method === "POST" && idPart == null) {
+    const checked = model.validateResult(body, null, ctx);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    if (list.some((result) => Number(result.pairing_id) === Number(checked.value.pairing_id))) {
+      return send(res, 409, { error: "That pairing already has a result" });
+    }
+    checked.value.result_id = nextId(list, "result_id");
+    list.push(checked.value);
+    writeJsonFile("results.json", list);
+    return send(res, 201, checked.value);
+  }
+  if (method === "PUT" && idPart != null && !action) {
+    const idx = list.findIndex((result) => String(result.result_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    const checked = model.validateResult(body, list[idx], ctx);
+    if (!checked.ok) return send(res, 400, { error: checked.error });
+    checked.value.result_id = list[idx].result_id;
+    list[idx] = checked.value;
+    writeJsonFile("results.json", list);
+    return send(res, 200, checked.value);
+  }
+  return send(res, 405, { error: "Method not allowed" });
+}
+
+async function handleControl(req, res, method) {
+  const list = readList("control.json");
+  if (method === "GET") return send(res, 200, list);
+  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  const body = (await readBody(req)) || {};
+  const ctx = eventContext();
+  const checked = model.validateControl(body, ctx);
+  if (!checked.ok) return send(res, 400, { error: checked.error });
+  const idx = list.findIndex(
+    (row) => Number(row.round_id) === checked.value.round_id && Number(row.area_id) === checked.value.area_id
+  );
+  if (idx >= 0) list[idx] = checked.value;
+  else list.push(checked.value);
+  writeJsonFile("control.json", list);
+  return send(res, idx >= 0 ? 200 : 201, checked.value);
+}
+
 async function handlePublic(req, res, parts, method) {
   if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
   const collection = parts[1];
@@ -1120,6 +1536,12 @@ async function handlePublic(req, res, parts, method) {
   if (collection === "meta") return send(res, 200, publicMeta(readCollection("meta")));
   if (collection === "systems") return send(res, 200, readCollection("systems"));
   if (collection === "games") return send(res, 200, readCollection("games").map(publicGame));
+  if (collection === "entrants") return send(res, 200, readList("players.json").map(model.publicEntrant));
+  if (collection === "event") {
+    const event = readJsonFile("event.json", null);
+    return send(res, 200, model.publicEvent(event || ensureEvent()));
+  }
+  if (collection === "map") return send(res, 200, readMapFile());
   return send(res, 404, { error: "Unknown public collection" });
 }
 
@@ -1133,9 +1555,18 @@ async function handleApi(req, res, pathname) {
   if (parts[0] === "auth") return handleAuth(req, res, parts, method);
   if (parts[0] === "public") return handlePublic(req, res, parts, method);
 
-  if (["players", "forces", "invites", "roster", "actions", "campaign", "feedback", "inbox"].includes(parts[0])) {
+  if (["forces", "invites", "roster", "actions", "campaign", "feedback", "inbox"].includes(parts[0])) {
     return send(res, 404, { error: "Not part of this event" });
   }
+
+  if (parts[0] === "event" && parts.length === 1) return handleEvent(req, res, method);
+  if (parts[0] === "map" && parts.length === 1) return handleMapImage(req, res, method);
+  if (parts[0] === "areas") return handleAreas(req, res, method, parts[1]);
+  if (parts[0] === "players") return handlePlayers(req, res, method, parts[1]);
+  if (parts[0] === "rounds") return handleRounds(req, res, method, parts[1]);
+  if (parts[0] === "pairings") return handlePairings(req, res, method, parts[1]);
+  if (parts[0] === "results") return handleEventResults(req, res, method, parts[1], parts[2]);
+  if (parts[0] === "control") return handleControl(req, res, method);
 
   if (parts[0] === "games" && method === "POST" && parts[2] === "confirm") {
     return confirmResult(req, res, parts[1]);
@@ -1227,6 +1658,8 @@ function boot() {
   ensureDataDir();
   seedBaselineSystems();
   seedDefaultMeta();
+  migrateImportedMap();
+  ensureEvent();
   noteIgnoredSampleSeed();
   bootstrapAdmin();
 }

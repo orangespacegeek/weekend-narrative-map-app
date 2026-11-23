@@ -94,7 +94,7 @@ test("only the event admin can sign in, and player auth routes are gone", async 
 
     const good = await login(ctx.base, ADMIN_PW);
     assert.equal(good.status, 200);
-    assert.equal(good.json.role, "campaign_admin");
+    assert.equal(good.json.role, "event_admin");
     assert.equal(good.json.authenticated, undefined);
     assert.ok(good.json.token);
 
@@ -104,7 +104,7 @@ test("only the event admin can sign in, and player auth routes are gone", async 
     const meJson = await me.json();
     assert.equal(me.status, 200);
     assert.equal(meJson.authenticated, true);
-    assert.equal(meJson.role, "campaign_admin");
+    assert.equal(meJson.role, "event_admin");
     assert.equal(meJson.player_id, undefined);
 
     const anon = await fetch(ctx.base + "/api/auth/me");
