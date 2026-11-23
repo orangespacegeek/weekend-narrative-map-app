@@ -37,7 +37,7 @@ test("standings order is campaign points, then VP difference, then strength of s
   assert.ok(model.compareStandings(softer, harder) < 0);
 });
 
-test("Swiss keeps locked matches, avoids rematches, and gives the bye to the lowest eligible player", () => {
+test("Swiss keeps locked matches, avoids rematches, and pairs an uneven side with a TO stand-in", () => {
   const players = [1, 2, 3].map((id) => player(id, "Loyalist")).concat([4, 5, 6].map((id) => player(id, "Traitor")));
   players.push({ ...player(7, "Loyalist"), dropped: true });
   const prior = [{ pairing_id: 1, round_id: 1, kind: "normal", state: "published", loyalist_id: 1, traitor_id: 4 }];
@@ -50,16 +50,25 @@ test("Swiss keeps locked matches, avoids rematches, and gives the bye to the low
   assert.deepEqual(games, ["1-6", "3-4"]);
   assert.equal(paired.pairs.some((pair) => pair[0].player_id === 2 || pair[1].player_id === 5), false);
 
-  const byeField = [player(1, "Loyalist"), player(2, "Loyalist"), player(4, "Traitor")];
-  const withBye = generateSwiss({ players: byeField, pairings: [], results: [], roundId: 1 });
-  assert.equal(withBye.ok, true, withBye.error);
-  assert.equal(withBye.byes.length, 1);
-  assert.equal(withBye.byes[0].player_id, 2);
-  assert.deepEqual([withBye.pairs[0][0].player_id, withBye.pairs[0][1].player_id], [1, 4]);
+  const uneven = [player(1, "Loyalist"), player(2, "Loyalist"), player(4, "Traitor")];
+  const withStandIn = generateSwiss({ players: uneven, pairings: [], results: [], roundId: 1 });
+  assert.equal(withStandIn.ok, true, withStandIn.error);
+  assert.equal(withStandIn.byes.length, 0);
+  assert.equal(withStandIn.createdPlayers.length, 1);
+  assert.equal(withStandIn.createdPlayers[0].is_stand_in, true);
+  assert.equal(withStandIn.createdPlayers[0].faction, "Traitor");
+  assert.equal(withStandIn.createdPlayers[0].display_name, "TO Stand-in");
+  const standInId = withStandIn.createdPlayers[0].player_id;
+  const unevenGames = withStandIn.pairs.map((pair) => pair[0].player_id + "-" + pair[1].player_id).sort();
+  assert.deepEqual(unevenGames, ["1-4", "2-" + standInId].sort());
 
-  const repeat = generateSwiss({ players: byeField, pairings: [], results: [], roundId: 1, seed: 3 });
-  const repeatAgain = generateSwiss({ players: byeField, pairings: [], results: [], roundId: 1, seed: 3 });
-  assert.equal(repeat.byes[0].player_id, repeatAgain.byes[0].player_id);
+  const repeat = generateSwiss({ players: uneven, pairings: [], results: [], roundId: 1, seed: 3 });
+  const repeatAgain = generateSwiss({ players: uneven, pairings: [], results: [], roundId: 1, seed: 3 });
+  assert.equal(repeat.createdPlayers[0].player_id, repeatAgain.createdPlayers[0].player_id);
+  assert.equal(
+    repeat.pairs.find((pair) => pair[0].player_id === 2)[1].player_id,
+    repeatAgain.pairs.find((pair) => pair[0].player_id === 2)[1].player_id
+  );
 
   const stuck = generateSwiss({
     players: [player(1, "Loyalist"), player(4, "Traitor")],
@@ -199,14 +208,29 @@ test("visitors see no bye result until the round is published", async () => {
       headers,
       body: JSON.stringify({ number: 1 })
     })).json();
-    const generated = await (await fetch(ctx.base + "/api/rounds/" + round.round_id + "/pair", {
+    const loyalist = players.find((player) => player.display_name === "L-02");
+    const other = players.find((player) => player.display_name === "L-01");
+    const traitor = players.find((player) => player.display_name === "T-01");
+    const byeResponse = await fetch(ctx.base + "/api/pairings", {
       method: "POST",
       headers,
-      body: JSON.stringify({ seed: 1 })
-    })).json();
-    const bye = generated.pairings.find((pairing) => pairing.kind === "bye");
-    assert.ok(bye);
-    const game = generated.pairings.find((pairing) => pairing.kind === "normal");
+      body: JSON.stringify({ round_id: round.round_id, kind: "bye", loyalist_id: loyalist.player_id, traitor_id: null })
+    });
+    const bye = await byeResponse.json();
+    assert.equal(byeResponse.status, 201, JSON.stringify(bye));
+    assert.equal(bye.kind, "bye");
+    const gameResponse = await fetch(ctx.base + "/api/pairings", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        round_id: round.round_id,
+        kind: "normal",
+        loyalist_id: other.player_id,
+        traitor_id: traitor.player_id
+      })
+    });
+    const game = await gameResponse.json();
+    assert.equal(gameResponse.status, 201, JSON.stringify(game));
     const scored = await fetch(ctx.base + "/api/results", {
       method: "POST",
       headers,
@@ -315,11 +339,15 @@ test("regenerating a draft matches a fresh pairing", async () => {
       body: "{}"
     });
     const fresh = await (await pair()).json();
+    const roster = await (await fetch(byeCtx.base + "/api/players", { headers })).json();
     const again = await (await pair()).json();
-    assert.deepEqual(seats(fresh.pairings, imported.added), ["bye:L-02", "normal:L-01:T-01"]);
-    assert.deepEqual(seats(again.pairings, imported.added), ["bye:L-02", "normal:L-01:T-01"]);
+    const rosterAgain = await (await fetch(byeCtx.base + "/api/players", { headers })).json();
+    const expected = ["normal:L-01:T-01", "normal:L-02:TO Stand-in"];
+    assert.deepEqual(seats(fresh.pairings, roster), expected);
+    assert.deepEqual(seats(again.pairings, rosterAgain), expected);
+    assert.equal(rosterAgain.filter((player) => player.is_stand_in).length, 1);
     const stored = await (await fetch(byeCtx.base + "/api/pairings", { headers })).json();
-    assert.equal(stored.filter((pairing) => pairing.kind === "bye").length, 1);
+    assert.equal(stored.filter((pairing) => pairing.kind === "bye").length, 0);
     const results = await (await fetch(byeCtx.base + "/api/results", { headers })).json();
     assert.deepEqual(results, []);
   } finally {

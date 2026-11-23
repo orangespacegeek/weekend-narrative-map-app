@@ -15,6 +15,7 @@
     const detail = document.createElement("p");
     const bits = [player.faction];
     if (player.army) bits.push(player.army);
+    if (player.is_stand_in) bits.push("TO Stand-in");
     if (player.dropped) bits.push("Dropped");
     detail.textContent = bits.join(" · ");
     article.append(title, detail);
@@ -111,6 +112,7 @@
     form.faction.value = player.faction;
     form.army.value = player.army || "";
     form.dropped.checked = !!player.dropped;
+    form.stand_in.checked = !!player.is_stand_in;
     document.getElementById("form-title").textContent = "Edit entrant";
     document.getElementById("save-entrant").textContent = "Save";
     document.getElementById("cancel-edit").hidden = false;
@@ -132,7 +134,8 @@
       display_name: form.display_name.value,
       faction: form.faction.value,
       army: form.army.value,
-      dropped: form.dropped.checked
+      dropped: form.dropped.checked,
+      is_stand_in: form.stand_in.checked
     };
     try {
       if (editing == null) await SH.save("players", body);
