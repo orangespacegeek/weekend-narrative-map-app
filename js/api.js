@@ -10,7 +10,8 @@
     meta: null,
     players: "player_id",
     rounds: "round_id",
-    pairings: "pairing_id"
+    pairings: "pairing_id",
+    results: "result_id"
   };
 
   let mode = "local";
@@ -249,6 +250,14 @@
     });
   }
 
+  async function resultAction(resultId, action) {
+    await probe();
+    return request("/api/results/" + encodeURIComponent(resultId) + "/" + action, {
+      method: "POST",
+      body: "{}"
+    });
+  }
+
   async function roundAction(roundId, action) {
     await probe();
     return request("/api/rounds/" + encodeURIComponent(roundId) + "/" + action, {
@@ -363,6 +372,7 @@
     adminList,
     generateRound,
     roundAction,
+    resultAction,
     confirmGame: (id, as) => postAction("/api/games/" + encodeURIComponent(id) + "/confirm", { as: as || "admin" }),
     disputeGame: (id, note) => postAction("/api/games/" + encodeURIComponent(id) + "/dispute", { note: note || "" }),
     voidGame: (id) => postAction("/api/games/" + encodeURIComponent(id) + "/void", {}),

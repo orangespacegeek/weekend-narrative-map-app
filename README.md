@@ -9,7 +9,7 @@ This app was imported from [HH-Map-Campaign-Interface](https://github.com/orange
 - `server.js` serves the pages and a JSON API. Live data is files in `DATA_DIR`.
 - Admin login uses the same scrypt hash and `sh_session` cookie as the imported server. There is no sign-up, invite, or player session.
 - The map (`campaign_map.html`, `js/map.js`) draws nodes and the routes between them as SVG. An admin can add, move, rename, relink, and delete nodes from the map or from the Nodes page.
-- Results stay pending until the opponent confirms. The admin can record that confirmation, dispute a result, or clear it. Phone reporting is not built yet.
+- Players report a table from the round QR. Matching reports confirm themselves. A clash is flagged for the organiser, who confirms or rejects it on the phone.
 - Pages share `css/site-nav.css` (theme tokens plus the header and phone nav). Script and stylesheet URLs are cache-busted with a content hash. HTML itself is `no-store`.
 
 ## Local start
@@ -66,7 +66,7 @@ Each later change is its own small PR.
 4. **Registration and roster.** Check-in list, plus Apex and Grudge match entry. No real names committed to the repo.
 5. **Swiss pairing.** Pairing engine and a review step for the organiser.
 6. **Area and table assignment.** Printable pairings and QR codes. Games take tables from the map. `/print/round/:number` is the public paper sheet, without a QR. The organiser's copy is `/print/round/:number/organiser`, and `/print/qr-sheet` lists the round codes. The phone form at `report.html` is still a placeholder.
-7. **Phone results.** A player reports a result with an event code and that round's QR code, and the opponent confirms on their phone. No player account.
+7. **Phone results.** `report.html` is the form the round QR opens. The event code gates the report and is not shown again after the page loads.
 8. **Scoring and narrative log.** Standings and a log of what the results did to the story.
 9. **Projector dashboard and theme.** A view for the room, and the event theme.
 10. **Export and deploy.** Backup/export, then a real Render service. `render.yaml` in this repo is only a draft. See [DEPLOY.md](DEPLOY.md). Do not create a service from this PR.
@@ -81,9 +81,9 @@ Each later change is its own small PR.
 - `map-editor.html` — admin zone editor
 - `campaign_map.html`, `js/map.js` — node-and-route map
 - `systems.html` — node and route editor
-- `games.html` — results and opponent confirmation
+- `games.html` — confirmed results, and the organiser's phone review
 - `pairings.html` — organiser review, with a table on each game
-- `report.html` — placeholder page opened by a round QR code
+- `report.html` — phone results form opened by a round QR code
 - `login.html` — admin login
 - `js/api.js` — browser client
 - `css/site-nav.css` — shared theme and header

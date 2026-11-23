@@ -156,6 +156,10 @@ button.danger {
   gap: 0.5rem;
 }
 
+.choice-grid { display: grid; gap: 0.55rem; }
+button.choice { width: 100%; justify-content: flex-start; }
+button.choice[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 2px; }
+
 .msg { min-height: 1.2rem; font-size: 0.9rem; }
 .msg.err { color: var(--danger); }
 .msg.ok { color: var(--ok); }
