@@ -214,8 +214,12 @@
     return request("/api/auth/set-password", { method: "POST", body: JSON.stringify(body || {}) });
   }
 
+  function isAdminRole(role) {
+    return role === "event_admin" || role === "campaign_admin";
+  }
+
   function isLoggedIn() {
-    return !!(meCache && meCache.authenticated && meCache.role === "campaign_admin");
+    return !!(meCache && meCache.authenticated && isAdminRole(meCache.role));
   }
 
   function escapeHtml(s) {
@@ -278,7 +282,9 @@
     const role = meCache.role || "visitor";
     document.querySelectorAll("[data-role]").forEach((el) => {
       const need = (el.getAttribute("data-role") || "").split(/\s+/);
-      const ok = need.some((r) => r === role || (r === "logged-in" && isLoggedIn()));
+      const ok = need.some(
+        (r) => r === role || ((r === "campaign_admin" || r === "event_admin") && isAdminRole(role)) || (r === "logged-in" && isLoggedIn())
+      );
       el.hidden = !ok;
     });
     const slot = document.getElementById("nav-auth");
