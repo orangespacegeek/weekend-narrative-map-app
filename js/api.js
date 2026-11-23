@@ -241,6 +241,22 @@
     return request("/api/" + collection, { method: "GET" });
   }
 
+  async function generateRound(roundId, seed) {
+    await probe();
+    return request("/api/rounds/" + encodeURIComponent(roundId) + "/pair", {
+      method: "POST",
+      body: JSON.stringify(seed == null ? {} : { seed })
+    });
+  }
+
+  async function roundAction(roundId, action) {
+    await probe();
+    return request("/api/rounds/" + encodeURIComponent(roundId) + "/" + action, {
+      method: "POST",
+      body: "{}"
+    });
+  }
+
   function isAdminRole(role) {
     return role === "event_admin" || role === "campaign_admin";
   }
@@ -345,6 +361,8 @@
     saveAreas,
     importRoster,
     adminList,
+    generateRound,
+    roundAction,
     confirmGame: (id, as) => postAction("/api/games/" + encodeURIComponent(id) + "/confirm", { as: as || "admin" }),
     disputeGame: (id, note) => postAction("/api/games/" + encodeURIComponent(id) + "/dispute", { note: note || "" }),
     voidGame: (id) => postAction("/api/games/" + encodeURIComponent(id) + "/void", {}),
