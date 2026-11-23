@@ -1,6 +1,7 @@
-# Draft only. Do not apply this blueprint.
-# Deploy is a later PR. Committing this file does not create a Render service.
-# See DEPLOY.md.
+# Blueprint for a standalone Render web service.
+# Applying this file in the Render dashboard creates a paid service.
+# Do not apply it until the cost notes in docs/deploy-render.md have been reviewed.
+# This repository does not create the service by itself.
 
 services:
   - type: web
@@ -15,12 +16,12 @@ services:
         value: production
       - key: DATA_DIR
         value: /var/data
+      - key: TRUST_PROXY
+        value: "1"
       - key: CAMPAIGN_ADMIN_LOGIN
         value: admin
       - key: CAMPAIGN_ADMIN_PASSWORD
         sync: false
-      - key: TRUST_PROXY
-        value: "1"
     disk:
       name: event-data
       mountPath: /var/data

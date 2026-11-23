@@ -88,6 +88,14 @@
           <a class="button ghost" href="games.html">Log a result</a>
           <a class="button ghost" href="projector.html">Projector</a>
         </p>
+        <p class="button-row">
+          <button type="button" id="download-backup">Download backup</button>
+          <button type="button" class="ghost" id="export-csv">Export CSV</button>
+          <label class="button ghost">Restore backup
+            <input id="restore-file" type="file" accept="application/json,.json" hidden />
+          </label>
+        </p>
+        <p id="backup-msg" class="msg" role="status"></p>
         <label class="field">Site style
           <select id="site-theme">
             <option value="current">Current</option>
@@ -108,6 +116,54 @@
         const select = document.getElementById("site-theme");
         if (select && theme.theme) select.value = theme.theme;
       } catch (_) {}
+      async function saveFile(res, name) {
+        const blob = await res.blob();
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = name;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+      document.getElementById("download-backup").addEventListener("click", async () => {
+        const msg = document.getElementById("backup-msg");
+        msg.textContent = "Preparing backup…";
+        try {
+          await saveFile(await SH.adminFetch("/api/admin/backup"), "event-backup.json");
+          msg.textContent = "Backup downloaded.";
+        } catch (err) {
+          msg.textContent = err.message || "Could not download the backup";
+        }
+      });
+      document.getElementById("export-csv").addEventListener("click", async () => {
+        const msg = document.getElementById("backup-msg");
+        msg.textContent = "Preparing spreadsheets…";
+        try {
+          await saveFile(await SH.adminFetch("/api/admin/standings.csv"), "standings.csv");
+          await saveFile(await SH.adminFetch("/api/admin/results.csv"), "results.csv");
+          msg.textContent = "Standings and results downloaded.";
+        } catch (err) {
+          msg.textContent = err.message || "Could not export the CSV";
+        }
+      });
+      document.getElementById("restore-file").addEventListener("change", async (event) => {
+        const msg = document.getElementById("backup-msg");
+        const file = event.target.files && event.target.files[0];
+        event.target.value = "";
+        if (!file) return;
+        msg.textContent = "Restoring…";
+        try {
+          const text = await file.text();
+          JSON.parse(text);
+          await SH.adminFetch("/api/admin/restore", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: text
+          });
+          msg.textContent = "Backup restored.";
+        } catch (err) {
+          msg.textContent = err.message || "Could not restore the backup";
+        }
+      });
       document.getElementById("save-theme").addEventListener("click", async () => {
         const msg = document.getElementById("theme-msg");
         msg.textContent = "Saving…";

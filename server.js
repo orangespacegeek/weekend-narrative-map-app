@@ -107,6 +107,7 @@ const tables = require("./lib/tables");
 const qr = require("./lib/qr");
 const printPages = require("./lib/print");
 const scoring = require("./lib/scoring");
+const backup = require("./lib/backup");
 
 // systems.json is still the seed file and the shape the current map page edits.
 // map.json is the event area list (area_id, routes, tables, scenario).
@@ -2109,6 +2110,164 @@ function projectorPayload() {
   };
 }
 
+function requireAdminGate(req) {
+  const gate = requireAdmin(req);
+  if (!gate.ok) return gate;
+  if (parseCookies(req).sh_session && req.headers["x-sh-request"] !== "1") {
+    return { ok: false, status: 403, error: "Write blocked. Refresh the page and try again." };
+  }
+  return { ok: true };
+}
+
+const RESTORE_MAX_BYTES = 12 * 1024 * 1024;
+
+function readLimited(req, limit) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let settled = false;
+    function finish(err, value) {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve(value);
+    }
+    req.on("data", (chunk) => {
+      if (settled) return;
+      size += chunk.length;
+      if (size > limit) {
+        finish(httpError(413, "Backup is too large"));
+        setImmediate(() => {
+          if (!req.destroyed) req.destroy();
+        });
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => finish(null, Buffer.concat(chunks)));
+    req.on("error", (err) => finish(err));
+  });
+}
+
+function buildBackup() {
+  const files = {};
+  backup.FILE_NAMES.forEach((name) => {
+    if (name === "event.json") files[name] = readJsonFile(name, null) || ensureEvent();
+    else if (name === "map.json") files[name] = readJsonFile(name, null) || { image: null, areas: [] };
+    else if (name === "meta.json") files[name] = readJsonFile(name, null) || { event_name: DEFAULT_META.event_name, blurb: DEFAULT_META.blurb };
+    else files[name] = readJsonFile(name, null) || [];
+  });
+  let mapImage = null;
+  const image = files["map.json"] && files["map.json"].image;
+  if (image && image.file) {
+    const fp = storedMapPath(image.file);
+    if (fp && fs.existsSync(fp)) {
+      const bytes = fs.readFileSync(fp);
+      mapImage = {
+        file: image.file,
+        mime: image.file.endsWith(".png") ? "image/png" : "image/jpeg",
+        data: bytes.toString("base64")
+      };
+    }
+  }
+  return {
+    format: backup.FORMAT,
+    version: backup.VERSION,
+    exported_at: new Date().toISOString(),
+    files,
+    map_image: mapImage
+  };
+}
+
+function sendCsv(res, filename, text) {
+  res.writeHead(200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": 'attachment; filename="' + filename + '"',
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  });
+  res.end(text);
+}
+
+async function handleAdminBackup(req, res, method) {
+  const gate = requireAdminGate(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+  const body = JSON.stringify(buildBackup());
+  res.writeHead(200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Disposition": 'attachment; filename="event-backup.json"',
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff"
+  });
+  res.end(body);
+}
+
+async function handleAdminRestore(req, res, method) {
+  const gate = requireAdminGate(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  let raw;
+  try {
+    raw = await readLimited(req, RESTORE_MAX_BYTES);
+  } catch (err) {
+    const status = Number(err && err.status) || 400;
+    return send(res, status, { error: err.message || "Backup could not be read" });
+  }
+  let bundle;
+  try {
+    bundle = JSON.parse(raw.toString("utf8"));
+  } catch (_) {
+    return send(res, 400, { error: "Backup must be JSON" });
+  }
+  const checked = backup.validateBackup(bundle);
+  if (!checked.ok) return send(res, 400, { error: checked.error });
+  const eventCheck = model.validateEvent(checked.files["event.json"], checked.files["event.json"]);
+  if (!eventCheck.ok) return send(res, 400, { error: eventCheck.error });
+  checked.files["event.json"] = eventCheck.value;
+  if (checked.image) {
+    if (checked.image.bytes.length > MAP_IMAGE_MAX_BYTES) return send(res, 400, { error: "Map image is too large" });
+    const kind = sniffMapImage(checked.image.bytes);
+    if (checked.image.file === "event-map.png" && kind !== "png") return send(res, 400, { error: "Map image is not a PNG" });
+    if (checked.image.file === "event-map.jpg" && kind !== "jpeg") return send(res, 400, { error: "Map image is not a JPEG" });
+    const size = kind === "png" ? pngSize(checked.image.bytes) : jpegSize(checked.image.bytes);
+    checked.files["map.json"].image = Object.assign({ file: checked.image.file }, size || {});
+  } else {
+    checked.files["map.json"].image = null;
+  }
+  ensureDataDir();
+  backup.FILE_NAMES.forEach((name) => {
+    writeJsonFile(name, checked.files[name]);
+  });
+  const dir = mapImageDir();
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  ["event-map.png", "event-map.jpg"].forEach((name) => {
+    const fp = storedMapPath(name);
+    if (fp && fs.existsSync(fp)) fs.unlinkSync(fp);
+  });
+  if (checked.image) {
+    const fp = storedMapPath(checked.image.file);
+    const tmp = fp + ".tmp-" + process.pid;
+    fs.writeFileSync(tmp, checked.image.bytes);
+    fs.renameSync(tmp, fp);
+  }
+  return send(res, 200, { ok: true });
+}
+
+async function handleAdminCsv(req, res, method, kind) {
+  const gate = requireAdminGate(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+  if (kind === "standings") {
+    return sendCsv(res, "standings.csv", backup.standingsCsv(scoring.scoreState(scoringInput())));
+  }
+  return sendCsv(
+    res,
+    "results.csv",
+    backup.resultsCsv(readList("results.json"), readList("pairings.json"), readList("players.json"), readList("rounds.json"))
+  );
+}
+
 async function handleProjector(req, res, method) {
   if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
   return send(res, 200, projectorPayload());
@@ -2299,6 +2458,10 @@ async function handleApi(req, res, pathname) {
   if (parts[0] === "control") return handleControl(req, res, method);
   if (parts[0] === "theme" && parts.length === 1) return handleTheme(req, res, method);
   if (parts[0] === "projector" && parts.length === 1) return handleProjector(req, res, method);
+  if (parts[0] === "admin" && parts[1] === "backup" && parts.length === 2) return handleAdminBackup(req, res, method);
+  if (parts[0] === "admin" && parts[1] === "restore" && parts.length === 2) return handleAdminRestore(req, res, method);
+  if (parts[0] === "admin" && parts[1] === "standings.csv" && parts.length === 2) return handleAdminCsv(req, res, method, "standings");
+  if (parts[0] === "admin" && parts[1] === "results.csv" && parts.length === 2) return handleAdminCsv(req, res, method, "results");
   if (parts[0] === "standings" && parts.length === 1) return handleStandings(req, res, method);
   if (parts[0] === "narrative" && parts.length === 1) return handleNarrative(req, res, method);
 

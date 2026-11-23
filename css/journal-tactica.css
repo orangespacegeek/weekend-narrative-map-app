@@ -1,5 +1,4 @@
-/* Journal Tactica. Applied only when the page asks for it. */
-@import url("https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&family=Cinzel:wght@600;700&family=EB+Garamond:ital,wght@1,500;1,600&display=swap");
+/* Journal Tactica colours and type. The font file is added only while this theme is on. */
 
 html[data-theme="journal-tactica"] {
   --bg: #16110c;

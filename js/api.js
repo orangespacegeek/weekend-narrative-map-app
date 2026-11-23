@@ -250,6 +250,23 @@
     });
   }
 
+  async function adminFetch(path, options) {
+    await probe();
+    const res = await fetch(apiBase() + path, {
+      credentials: "include",
+      cache: "no-store",
+      ...options,
+      headers: { ...authHeaders(), ...(options && options.headers) }
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const err = new Error((data && data.error) || "Request failed");
+      err.status = res.status;
+      throw err;
+    }
+    return res;
+  }
+
   async function saveTheme(theme) {
     await probe();
     return request("/api/theme", {
@@ -391,6 +408,7 @@
     resultAction,
     saveNarrative,
     saveTheme,
+    adminFetch,
     confirmGame: (id, as) => postAction("/api/games/" + encodeURIComponent(id) + "/confirm", { as: as || "admin" }),
     disputeGame: (id, note) => postAction("/api/games/" + encodeURIComponent(id) + "/dispute", { note: note || "" }),
     voidGame: (id) => postAction("/api/games/" + encodeURIComponent(id) + "/void", {}),
