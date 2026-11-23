@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0e0e18" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <title>Weekend Event – Standings</title>
+  <link rel="stylesheet" href="css/site-nav.css" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <button type="button" class="nav-toggle" aria-expanded="false" aria-controls="site-menu" aria-label="Open menu">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
+      <a class="brand" href="index.html">
+        <span class="titles">
+          <span class="brand-kicker">Narrative map</span>
+          <h1>Standings</h1>
+        </span>
+      </a>
+      <div class="header-end">
+        <span id="nav-auth"><a class="nav-login" href="login.html">Log in</a></span>
+      </div>
+    </div>
+    <nav class="site-nav" id="site-menu">
+      <a href="index.html">Home</a>
+      <a href="area-map.html">Map</a>
+      <a href="games.html">Results</a>
+      <a href="roster.html">Roster</a>
+      <a href="pairings.html">Pairings</a>
+      <a href="standings.html">Standings</a>
+      <a href="narrative.html">Log</a>
+      <a href="map-editor.html" data-role="campaign_admin">Edit map</a>
+      <a href="campaign_map.html" data-role="campaign_admin">Node map</a>
+      <a href="systems.html" data-role="campaign_admin">Nodes</a>
+      <button type="button" id="nav-logout" hidden>Log out</button>
+    </nav>
+  </header>
+  <main class="page">
+    <p class="lede">Only confirmed games from published rounds. Rank is campaign points, then victory-point difference, then strength of schedule.</p>
+    <p id="leader" class="lede"></p>
+    <div id="factions" class="stat-row"></div>
+    <h2>Loyalist Best General</h2>
+    <div id="loyalists" class="stack"></div>
+    <h2>Traitor Best General</h2>
+    <div id="traitors" class="stack"></div>
+  </main>
+  <script src="js/api.js"></script>
+  <script src="js/standings.js"></script>
+  <script>SH.applyNavPermissions();</script>
+</body>
+</html>

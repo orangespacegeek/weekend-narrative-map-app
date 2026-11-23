@@ -4,7 +4,7 @@ One weekend, one event, one JSON store in `DATA_DIR`. Players do not have accoun
 
 The current map page still edits `systems.json` (`sys_id`, `sys_links`). On boot those rows are copied into `map.json` as areas, and later edits stay in step. New code should use the area names.
 
-Scoring and area control are fixed. A later PR calculates standings. This store only records the inputs and checks they are legal.
+Scoring and area control are fixed. Standings, the map, and the narrative log are calculated from confirmed results on published rounds.
 
 ## Rules the records follow
 
@@ -31,6 +31,7 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 | `control.json` | One row per round per area: that round's points, the previous holder, and the holder after the round |
 | `systems.json` | The same areas in the old `sys_id` / `sys_links` shape, for the current map page |
 | `games.json` | Retired interim board. New results belong in `results.json`. The old routes remain so older clients do not 404 |
+| `narrative.json` | Optional organiser recap for each round |
 | `accounts.json`, `sessions.json` | The event admin only. Not in git |
 
 An area has `area_id`, `name`, `shape` (`point` or `outline`), `points`, `x`, `y`, `routes` (other area ids), `tables`, `scenario`, and `notes`. A point is one coordinate. An outline needs at least three. `points` are pixels on the uploaded map image. `x` and `y` stay in the 800 by 560 node-map box so the older node page still has a position.
@@ -45,7 +46,7 @@ When a round is generated, each game is given the next free table from the map. 
 
 A result belongs to one pairing. The outcome has to match the VP: higher wins, equal is a tie. Confirmation is `pending`, `confirmed`, or `disputed`. Opponent confirmation is only valid when one of the two sides reported the result. A bye result is written when the round is published, confirmed by the admin, and worth at least 10 VP. A phone report is pending until the other player sends the same scores, which confirms it, or different scores, which flags it for the organiser. An optional note is plain text, at most 240 characters, and cannot look like an email address or a phone number. Visitors only receive confirmed results whose pairing is published.
 
-`control.json` stores one row per area per round: `loyalist_points` and `traitor_points` scored there that round, `previous_controller`, and `controller`. The holder is checked against that round only. A 3–0 round takes the area even if the other side led it before. A 0–0 or 3–3 round keeps the previous holder, and a tied area that nobody has held stays neutral. Posting Traitor as the holder of a tied area is rejected.
+Live area control is calculated from confirmed results on published rounds. Each published round records every area: that round's campaign points, the previous holder, and the holder afterwards. A side with more points takes the area. A tie keeps the previous holder, and a tied area that nobody has held stays neutral. `POST /api/control` still checks a proposed row against that same rule. The map, standings, and log do not read those posted rows; they use the calculated history. Pending and unpublished results are left out.
 
 ## Admin API
 
@@ -63,7 +64,9 @@ Writes need the event admin. Visitors can read the public shapes.
 - `GET` / `POST /api/pairings`, `PUT` / `DELETE /api/pairings/:id`
 - `GET` / `POST /api/results`, `PUT` / `DELETE /api/results/:id`, `POST /api/results/:id/confirm`, `POST /api/results/:id/reject`, `POST /api/results/:id/dispute`
 - `GET /api/report?round=` lists published tables for the phone form. `POST /api/report` files a report and requires the event code. The code is not copied into the response.
-- `GET` / `POST /api/control`
+- `GET` / `POST /api/control`. `GET` is the calculated history.
+- `GET /api/standings` for the public scoreboard and Best General tables
+- `GET /api/narrative` for the public log. `POST /api/narrative` saves an organiser recap and needs the admin and the CSRF check.
 - `GET /api/public/event`, `/map`, `/entrants` omit the event code, QR tokens, and the bye flag
 
 The old `/api/systems` and `/api/games` routes still serve the current pages.

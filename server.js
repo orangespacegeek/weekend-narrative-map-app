@@ -106,6 +106,7 @@ const swiss = require("./lib/swiss");
 const tables = require("./lib/tables");
 const qr = require("./lib/qr");
 const printPages = require("./lib/print");
+const scoring = require("./lib/scoring");
 
 // systems.json is still the seed file and the shape the current map page edits.
 // map.json is the event area list (area_id, routes, tables, scenario).
@@ -131,6 +132,8 @@ const PUBLIC_PAGES = new Set([
   "roster.html",
   "pairings.html",
   "report.html",
+  "standings.html",
+  "narrative.html",
   "systems.html",
   "games.html"
 ]);
@@ -1398,8 +1401,21 @@ async function handleEvent(req, res, method) {
   return send(res, 405, { error: "Method not allowed" });
 }
 
+function scoringInput() {
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  return {
+    players: readList("players.json"),
+    pairings: readList("pairings.json"),
+    results: readList("results.json"),
+    rounds: readList("rounds.json"),
+    areas: readMapFile().areas,
+    roundsPlanned: event.rounds_planned,
+    blurbs: readList("narrative.json")
+  };
+}
+
 function presentMap(map) {
-  const control = readList("control.json");
+  const control = scoring.scoreState(scoringInput()).control;
   const rounds = readList("rounds.json");
   const image = map.image ? { ...map.image, url: "/api/map/image" } : null;
   return {
@@ -1973,9 +1989,50 @@ async function handleEventResults(req, res, method, idPart, action) {
   return send(res, 405, { error: "Method not allowed" });
 }
 
+function cleanBlurb(value) {
+  if (value == null || String(value).trim() === "") return { ok: true, value: null };
+  const text = String(value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").trim();
+  if (text.length > 500) return { ok: false, error: "The recap must be at most 500 characters" };
+  if (model.looksLikeContact(text)) return { ok: false, error: "The recap cannot be an email address or a phone number" };
+  return { ok: true, value: text };
+}
+
+async function handleStandings(req, res, method) {
+  if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+  const scored = scoring.scoreState(scoringInput());
+  return send(res, 200, {
+    complete: scored.complete,
+    leader: scored.leader,
+    factions: scored.factions,
+    loyalists: scored.loyalists,
+    traitors: scored.traitors
+  });
+}
+
+async function handleNarrative(req, res, method) {
+  if (method === "GET") {
+    const scored = scoring.scoreState(scoringInput());
+    const event = readJsonFile("event.json", null) || ensureEvent();
+    return send(res, 200, { event_name: event.name, rounds: scored.log });
+  }
+  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
+  const body = (await readBody(req)) || {};
+  const roundId = Number(body.round_id);
+  const rounds = readList("rounds.json");
+  if (!rounds.some((round) => Number(round.round_id) === roundId)) return send(res, 404, { error: "Round not found" });
+  const blurb = cleanBlurb(body.blurb);
+  if (!blurb.ok) return send(res, 400, { error: blurb.error });
+  const list = readList("narrative.json").filter((row) => Number(row.round_id) !== roundId);
+  if (blurb.value) list.push({ round_id: roundId, blurb: blurb.value });
+  writeJsonFile("narrative.json", list);
+  return send(res, 200, { round_id: roundId, blurb: blurb.value });
+}
+
 async function handleControl(req, res, method) {
   const list = readList("control.json");
-  if (method === "GET") return send(res, 200, list);
+  if (method === "GET") return send(res, 200, scoring.scoreState(scoringInput()).control);
   if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
   const gate = requireAdmin(req);
   if (!gate.ok) return send(res, gate.status, { error: gate.error });
@@ -2175,6 +2232,8 @@ async function handleApi(req, res, pathname) {
   if (parts[0] === "results") return handleEventResults(req, res, method, parts[1], parts[2]);
   if (parts[0] === "report" && parts.length === 1) return handleReport(req, res, method);
   if (parts[0] === "control") return handleControl(req, res, method);
+  if (parts[0] === "standings" && parts.length === 1) return handleStandings(req, res, method);
+  if (parts[0] === "narrative" && parts.length === 1) return handleNarrative(req, res, method);
 
   if (parts[0] === "games" && method === "POST" && parts[2] === "confirm") {
     return confirmResult(req, res, parts[1]);

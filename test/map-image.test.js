@@ -213,37 +213,55 @@ test("area saves are admin-only and the public map reports this round's controll
     assert.equal(map.areas[0].controller, "neutral");
     assert.equal(map.areas[0].scenario, "Reactor Defense");
 
-    const round1 = await (await fetch(ctx.base + "/api/rounds", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ number: 1 })
-    })).json();
-    await fetch(ctx.base + "/api/control", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        round_id: round1.round_id,
-        area_id: 1,
-        loyalist_points: 3,
-        traitor_points: 0,
-        previous_controller: "neutral"
-      })
-    });
-    const round2 = await (await fetch(ctx.base + "/api/rounds", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ number: 2 })
-    })).json();
-    await fetch(ctx.base + "/api/control", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        round_id: round2.round_id,
-        area_id: 1,
-        loyalist_points: 0,
-        traitor_points: 3
-      })
-    });
+    async function player(name, faction, army) {
+      const res = await fetch(ctx.base + "/api/players", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ display_name: name, faction, army })
+      });
+      return res.json();
+    }
+    const l1 = await player("L-01", "Loyalist", "Iron Hands");
+    const t1 = await player("T-01", "Traitor", "Night Lords");
+    const l2 = await player("L-02", "Loyalist", "Ultramarines");
+    const t2 = await player("T-02", "Traitor", "Word Bearers");
+    async function played(number, loyalist, traitor, loyalistVp, traitorVp) {
+      const round = await (await fetch(ctx.base + "/api/rounds", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ number })
+      })).json();
+      const pairing = await (await fetch(ctx.base + "/api/pairings", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          round_id: round.round_id,
+          kind: "normal",
+          state: "draft",
+          area_id: 1,
+          table: String(number),
+          loyalist_id: loyalist.player_id,
+          traitor_id: traitor.player_id
+        })
+      })).json();
+      await fetch(ctx.base + "/api/rounds/" + round.round_id + "/approve", { method: "POST", headers, body: "{}" });
+      await fetch(ctx.base + "/api/rounds/" + round.round_id + "/publish", { method: "POST", headers, body: "{}" });
+      await fetch(ctx.base + "/api/results", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          pairing_id: pairing.pairing_id,
+          round_id: round.round_id,
+          loyalist_vp: loyalistVp,
+          traitor_vp: traitorVp,
+          reported_by: "admin",
+          confirmation: "confirmed",
+          confirmed_by: "admin"
+        })
+      });
+    }
+    await played(1, l1, t1, 12, 4);
+    await played(2, l2, t2, 4, 12);
     const pub = await (await fetch(ctx.base + "/api/public/map")).json();
     const wall = pub.areas.find((area) => area.name === "Wall");
     assert.equal(wall.controller, "Traitor");

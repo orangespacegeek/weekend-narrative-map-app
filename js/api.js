@@ -250,6 +250,14 @@
     });
   }
 
+  async function saveNarrative(roundId, blurb) {
+    await probe();
+    return request("/api/narrative", {
+      method: "POST",
+      body: JSON.stringify({ round_id: roundId, blurb: blurb })
+    });
+  }
+
   async function resultAction(resultId, action) {
     await probe();
     return request("/api/results/" + encodeURIComponent(resultId) + "/" + action, {
@@ -373,6 +381,7 @@
     generateRound,
     roundAction,
     resultAction,
+    saveNarrative,
     confirmGame: (id, as) => postAction("/api/games/" + encodeURIComponent(id) + "/confirm", { as: as || "admin" }),
     disputeGame: (id, note) => postAction("/api/games/" + encodeURIComponent(id) + "/dispute", { note: note || "" }),
     voidGame: (id) => postAction("/api/games/" + encodeURIComponent(id) + "/void", {}),
