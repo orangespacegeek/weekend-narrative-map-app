@@ -39,15 +39,41 @@
     </nav>
   </header>
   <main class="page">
-    <p class="lede" id="note">The phone results form is the next update. This page is the address on the round QR code.</p>
+    <p class="lede" id="note">Open this page from the round QR code.</p>
+    <form id="report" class="stack" hidden>
+      <section class="card">
+        <h2>Your table</h2>
+        <div id="tables" class="choice-grid"></div>
+      </section>
+      <section class="card" id="seat-card" hidden>
+        <h2>You are</h2>
+        <div id="seats" class="choice-grid"></div>
+      </section>
+      <section class="card" id="score-card" hidden>
+        <h2>Result</h2>
+        <div id="winner" class="choice-grid">
+          <button type="button" class="choice" data-winner="loyalist_win">Loyalist win</button>
+          <button type="button" class="choice" data-winner="tie">Tie</button>
+          <button type="button" class="choice" data-winner="traitor_win">Traitor win</button>
+        </div>
+        <div class="two" style="margin-top:0.7rem">
+          <label class="field">Loyalist VP
+            <input id="loyalist-vp" inputmode="numeric" maxlength="4" />
+          </label>
+          <label class="field">Traitor VP
+            <input id="traitor-vp" inputmode="numeric" maxlength="4" />
+          </label>
+        </div>
+        <label class="field">Note
+          <textarea id="note-text" maxlength="240" placeholder="Optional, 240 characters"></textarea>
+        </label>
+        <button type="submit" id="send">Send report</button>
+      </section>
+      <p id="msg" class="msg" role="status"></p>
+    </form>
   </main>
   <script src="js/api.js"></script>
-  <script>
-    const round = new URLSearchParams(location.search).get("round");
-    if (round && /^\d+$/.test(round)) {
-      document.getElementById("note").textContent = "Round " + round + " results will be entered on this page. The form arrives in the next update.";
-    }
-    SH.applyNavPermissions();
-  </script>
+  <script src="js/report.js"></script>
+  <script>SH.applyNavPermissions();</script>
 </body>
 </html>

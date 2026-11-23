@@ -291,7 +291,9 @@ async function assertVisitorCannotSeeCode(base, code, round) {
     "/print/round/" + round.number,
     "/print/round/" + round.number + "/organiser",
     "/print/qr-sheet",
-    "/report.html?event=" + encodeURIComponent(code) + "&round=" + round.number
+    "/report.html?event=" + encodeURIComponent(code) + "&round=" + round.number,
+    "/api/report?round=" + round.number,
+    "/api/report?round=" + round.number + "&event=" + encodeURIComponent(code)
   ];
   const areas = await (await fetch(base + "/api/areas")).json();
   areas.forEach((area) => paths.push("/api/areas/" + area.area_id));
@@ -309,4 +311,12 @@ async function assertVisitorCannotSeeCode(base, code, round) {
     const text = await res.text();
     assert.equal(text.includes(code), false, route + " leaked the event code");
   }
+  const posted = await fetch(base + "/api/report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ event_code: "BAD-CODE", round: round.number, pairing_id: 1 })
+  });
+  const postedText = await posted.text();
+  assert.equal(postedText.includes(code), false);
+  assert.equal(postedText.includes("BAD-CODE"), false);
 }

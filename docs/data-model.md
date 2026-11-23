@@ -16,7 +16,7 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 - Pairings and rounds move draft, then approved, then published. A record cannot be published straight from draft.
 - Area control is decided each round from the campaign points scored in that area in that round. The side with more points takes it. A tie keeps the previous holder, or stays neutral if nobody held it. Earlier rounds are not added in. The history of each round is kept for the narrative log.
 - The faction winner is the side holding the most areas at the end. If both sides hold the same number, the side with more total campaign points wins. If that is also equal, the event is tied. Best general is the top Loyalist and the top Traitor, ordered by campaign points, then VP difference, then strength of schedule.
-- Each event has an `event_code`. Each round has a `qr_token`. Neither appears in a public response. The organiser's QR encodes the event code and the round number into `/report.html`, and only an admin can fetch that picture or the QR sheet. The public pairing sheet has no QR. The phone form itself is a later PR. `qr_token` is not in that URL.
+- Each event has an `event_code`. Each round has a `qr_token`. Neither appears in a public response. The organiser's QR encodes the event code and the round number into `/report.html`, and only an admin can fetch that picture or the QR sheet. The public pairing sheet has no QR. `qr_token` is not in that URL. The phone form reads the code from the link, removes it from the address bar, and sends it only on the report POST. A wrong or missing code is rejected without repeating the code, and too many bad attempts are rate-limited.
 
 ## Files
 
@@ -30,7 +30,7 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 | `results.json` | VP, outcome, confirmation, campaign points |
 | `control.json` | One row per round per area: that round's points, the previous holder, and the holder after the round |
 | `systems.json` | The same areas in the old `sys_id` / `sys_links` shape, for the current map page |
-| `games.json` | The interim result board from the first PR. New games belong in `results.json` |
+| `games.json` | Retired interim board. New results belong in `results.json`. The old routes remain so older clients do not 404 |
 | `accounts.json`, `sessions.json` | The event admin only. Not in git |
 
 An area has `area_id`, `name`, `shape` (`point` or `outline`), `points`, `x`, `y`, `routes` (other area ids), `tables`, `scenario`, and `notes`. A point is one coordinate. An outline needs at least three. `points` are pixels on the uploaded map image. `x` and `y` stay in the 800 by 560 node-map box so the older node page still has a position.
@@ -43,7 +43,7 @@ A pairing `kind` is `normal`, `apex`, `grudge`, or `bye`. Apex and grudge are al
 
 When a round is generated, each game is given the next free table from the map. Areas are taken in `area_id` order. An area with table numbers contributes one seat per number, and the game is stored with that area so its scenario prints with the table. An area with a scenario and no table numbers contributes one seat, labeled with the scenario's first 16 characters. A table the organiser already set on a locked Apex or Grudge match is kept. If two games in the round share a table, the save still stands and the response warns that the table is booked twice. A table that is not on the map is kept and warned about, so an older pairing is not rejected. Games left over when the map runs out of seats stay unassigned, with a warning. The printed sheet for a round is available only after every pairing in that round is published. It lists games by table and players alphabetically, with display name, faction, and army.
 
-A result belongs to one pairing. The outcome has to match the VP: higher wins, equal is a tie. Confirmation is `pending`, `confirmed`, or `disputed`. Opponent confirmation is only valid when one of the two sides reported the result. A bye result is written when the round is published, confirmed by the admin, and worth at least 10 VP. Visitors only receive results whose pairing is published.
+A result belongs to one pairing. The outcome has to match the VP: higher wins, equal is a tie. Confirmation is `pending`, `confirmed`, or `disputed`. Opponent confirmation is only valid when one of the two sides reported the result. A bye result is written when the round is published, confirmed by the admin, and worth at least 10 VP. A phone report is pending until the other player sends the same scores, which confirms it, or different scores, which flags it for the organiser. An optional note is plain text, at most 240 characters, and cannot look like an email address or a phone number. Visitors only receive confirmed results whose pairing is published.
 
 `control.json` stores one row per area per round: `loyalist_points` and `traitor_points` scored there that round, `previous_controller`, and `controller`. The holder is checked against that round only. A 3–0 round takes the area even if the other side led it before. A 0–0 or 3–3 round keeps the previous holder, and a tied area that nobody has held stays neutral. Posting Traitor as the holder of a tied area is rejected.
 
@@ -61,7 +61,8 @@ Writes need the event admin. Visitors can read the public shapes.
 - `GET /api/rounds/:id/qr.svg` is the admin QR for that round. `?download=1` sends it as a file. Visitors are refused.
 - `GET /print/round/:number` is the public paper pairing sheet, with no QR. `GET /print/round/:number/organiser` is the same sheet with the QR, and it requires the admin. `GET /print/qr-sheet` is the admin QR sheet.
 - `GET` / `POST /api/pairings`, `PUT` / `DELETE /api/pairings/:id`
-- `GET` / `POST /api/results`, `PUT` / `DELETE /api/results/:id`, `POST /api/results/:id/confirm`, `POST /api/results/:id/dispute`
+- `GET` / `POST /api/results`, `PUT` / `DELETE /api/results/:id`, `POST /api/results/:id/confirm`, `POST /api/results/:id/reject`, `POST /api/results/:id/dispute`
+- `GET /api/report?round=` lists published tables for the phone form. `POST /api/report` files a report and requires the event code. The code is not copied into the response.
 - `GET` / `POST /api/control`
 - `GET /api/public/event`, `/map`, `/entrants` omit the event code, QR tokens, and the bye flag
 

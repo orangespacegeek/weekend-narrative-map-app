@@ -5,8 +5,8 @@
  * Visitors can read the node-and-route map and reported results.
  * Only the event admin can sign in. There are no player accounts.
  *
- * Opponent confirmation of a result stays in the API. Phone reporting
- * with an event code and a per-round QR code is a later PR (see confirmResult).
+ * Players report a table result from the round QR. The event code gates
+ * that POST and is never written back into a response.
  */
 const http = require("http");
 const fs = require("fs");
@@ -431,6 +431,7 @@ function sessionCookie(req, token, maxAgeSeconds) {
 
 const AUTH_WINDOW_MS = 15 * 60 * 1000;
 const AUTH_MAX_ATTEMPTS = { login: 30 };
+const REPORT_CODE_MAX = 5;
 const authBuckets = new Map();
 
 function trustProxyHops() {
@@ -472,6 +473,31 @@ function rateLimitAuth(req, action) {
     return { retryAfter: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)) };
   }
   return null;
+}
+
+function reportCodeLocked(req) {
+  const bucket = authBuckets.get("report_code|" + clientIp(req));
+  if (!bucket || bucket.resetAt <= Date.now() || bucket.count < REPORT_CODE_MAX) return null;
+  return { retryAfter: Math.max(1, Math.ceil((bucket.resetAt - Date.now()) / 1000)) };
+}
+
+function noteBadReportCode(req) {
+  const now = Date.now();
+  const key = "report_code|" + clientIp(req);
+  let bucket = authBuckets.get(key);
+  if (!bucket || bucket.resetAt <= now) bucket = { count: 0, resetAt: now + AUTH_WINDOW_MS };
+  bucket.count += 1;
+  authBuckets.set(key, bucket);
+}
+
+function eventCodesMatch(given, real) {
+  const left = Buffer.from(String(given == null ? "" : given));
+  const right = Buffer.from(String(real == null ? "" : real));
+  if (left.length !== right.length) {
+    crypto.timingSafeEqual(right, right);
+    return false;
+  }
+  return crypto.timingSafeEqual(left, right);
 }
 
 function sendRateLimited(res, limited) {
@@ -739,12 +765,11 @@ function publicMeta(meta) {
 }
 
 function publicCounts() {
-  const games = readCollection("games");
-  const list = Array.isArray(games) ? games : [];
+  const results = readList("results.json");
   return {
     nodes: Array.isArray(readCollection("systems")) ? readCollection("systems").length : 0,
-    results: list.length,
-    pending: list.filter((g) => g && (g.result_state === "pending" || g.result_state === "disputed")).length
+    results: results.filter((result) => result && result.confirmation === "confirmed").length,
+    pending: results.filter((result) => result && (result.confirmation === "pending" || result.confirmation === "disputed")).length
   };
 }
 
@@ -1083,8 +1108,6 @@ function publicGame(game) {
   };
 }
 
-// TODO(PR 7): the opponent confirms from their phone with the event code and
-// that round's QR code. Until then only the admin can record the confirmation.
 async function confirmResult(req, res, idPart) {
   const gate = requireAdmin(req);
   if (!gate.ok) return send(res, gate.status, { error: gate.error });
@@ -1865,9 +1888,9 @@ async function handleEventResults(req, res, method, idPart, action) {
           .filter((pairing) => pairing.state === "published")
           .map((pairing) => Number(pairing.pairing_id))
       );
-      source = list.filter((result) => published.has(Number(result.pairing_id)));
+      source = list.filter((result) => result.confirmation === "confirmed" && published.has(Number(result.pairing_id)));
     }
-    const rows = source.map(model.withCampaignPoints);
+    const rows = gate.ok ? source.map(model.withCampaignPoints) : source.map(publicResultView);
     if (idPart == null) return send(res, 200, rows);
     const row = rows.find((result) => String(result.result_id) === String(idPart));
     if (!row) return send(res, 404, { error: "Not found" });
@@ -1891,6 +1914,21 @@ async function handleEventResults(req, res, method, idPart, action) {
     );
     if (!checked.ok) return send(res, 409, { error: checked.error });
     checked.value.result_id = current.result_id;
+    list[idx] = checked.value;
+    writeJsonFile("results.json", list);
+    return send(res, 200, checked.value);
+  }
+  if (method === "POST" && action === "reject") {
+    const idx = list.findIndex((result) => String(result.result_id) === String(idPart));
+    if (idx < 0) return send(res, 404, { error: "Not found" });
+    if (list[idx].confirmation === "disputed") return send(res, 200, list[idx]);
+    const checked = model.validateResult(
+      { ...list[idx], confirmation: "disputed", confirmed_by: null },
+      list[idx],
+      eventContext()
+    );
+    if (!checked.ok) return send(res, 409, { error: checked.error });
+    checked.value.result_id = list[idx].result_id;
     list[idx] = checked.value;
     writeJsonFile("results.json", list);
     return send(res, 200, checked.value);
@@ -1954,6 +1992,144 @@ async function handleControl(req, res, method) {
   return send(res, idx >= 0 ? 200 : 201, checked.value);
 }
 
+function publicResultView(result) {
+  return {
+    result_id: result.result_id,
+    pairing_id: result.pairing_id,
+    round_id: result.round_id,
+    loyalist_vp: result.loyalist_vp,
+    traitor_vp: result.traitor_vp,
+    outcome: result.outcome,
+    confirmation: result.confirmation,
+    note: result.note || null,
+    campaign_points: model.campaignPoints(result)
+  };
+}
+
+function reportPlayer(players, id) {
+  const player = (players || []).find((row) => Number(row.player_id) === Number(id));
+  if (!player) return null;
+  return { display_name: player.display_name, faction: player.faction, army: player.army || null };
+}
+
+function reportGames(round) {
+  const players = readList("players.json");
+  const areas = readMapFile().areas;
+  const results = readList("results.json");
+  return roundPairings(round.round_id)
+    .filter((pairing) => pairing.kind !== "bye" && pairing.table)
+    .map((pairing) => {
+      const area = areas.find((item) => Number(item.area_id) === Number(pairing.area_id));
+      const result = results.find((item) => Number(item.pairing_id) === Number(pairing.pairing_id));
+      return {
+        pairing_id: pairing.pairing_id,
+        table: pairing.table,
+        kind: pairing.kind,
+        area: area ? area.name : null,
+        scenario: area && area.scenario ? area.scenario : null,
+        loyalist: reportPlayer(players, pairing.loyalist_id),
+        traitor: reportPlayer(players, pairing.traitor_id),
+        status: result ? result.confirmation : "open"
+      };
+    })
+    .sort((a, b) => String(a.table).localeCompare(String(b.table), undefined, { numeric: true }));
+}
+
+async function handleReport(req, res, method) {
+  const url = new URL(req.url || "/", "http://localhost");
+  if (method === "GET") {
+    const number = Number(url.searchParams.get("round"));
+    const round = readList("rounds.json").find((row) => Number(row.number) === number);
+    if (!round) return send(res, 404, { error: "Round not found" });
+    const pairings = roundPairings(round.round_id);
+    if (!roundIsPublic(pairings)) return send(res, 404, { error: "Pairings are not published yet" });
+    const event = readJsonFile("event.json", null) || ensureEvent();
+    return send(res, 200, {
+      event_name: event.name,
+      round: { round_id: round.round_id, number: round.number },
+      games: reportGames(round)
+    });
+  }
+  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  const locked = reportCodeLocked(req);
+  if (locked) return sendRateLimited(res, locked);
+  const body = (await readBody(req)) || {};
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  if (!eventCodesMatch(body.event_code, event.event_code)) {
+    noteBadReportCode(req);
+    return send(res, 401, { error: "The event code was not accepted" });
+  }
+  const number = Number(body.round != null ? body.round : url.searchParams.get("round"));
+  const round = readList("rounds.json").find((row) => Number(row.number) === number);
+  if (!round) return send(res, 404, { error: "Round not found" });
+  const pairings = roundPairings(round.round_id);
+  if (!roundIsPublic(pairings)) return send(res, 404, { error: "Pairings are not published yet" });
+  const pairing = pairings.find((row) => Number(row.pairing_id) === Number(body.pairing_id));
+  if (!pairing || pairing.kind === "bye" || !pairing.table) {
+    return send(res, 400, { error: pairing && pairing.kind === "bye" ? "A bye is not reported from a table" : "That table is not in this round" });
+  }
+  const seat = body.seat === "loyalist" || body.seat === "traitor" ? body.seat : "";
+  if (!seat || (seat === "loyalist" && !pairing.loyalist_id) || (seat === "traitor" && !pairing.traitor_id)) {
+    return send(res, 400, { error: "Choose your name at that table" });
+  }
+  const ctx = eventContext();
+  const checked = model.validateResult(
+    {
+      pairing_id: pairing.pairing_id,
+      round_id: round.round_id,
+      loyalist_vp: body.loyalist_vp,
+      traitor_vp: body.traitor_vp,
+      outcome: body.outcome,
+      note: body.note,
+      confirmation: "pending",
+      reported_by: seat,
+      confirmed_by: null
+    },
+    null,
+    ctx
+  );
+  if (!checked.ok) return send(res, 400, { error: checked.error });
+  const list = readList("results.json");
+  const idx = list.findIndex((result) => Number(result.pairing_id) === Number(pairing.pairing_id));
+  if (idx < 0) {
+    checked.value.result_id = nextId(list, "result_id");
+    list.push(checked.value);
+    writeJsonFile("results.json", list);
+    return send(res, 201, { ok: true, status: "pending" });
+  }
+  const current = list[idx];
+  if (current.confirmation === "confirmed") return send(res, 409, { error: "This table already has a confirmed result" });
+  if (current.confirmation === "disputed") return send(res, 409, { error: "This table is waiting for the organiser" });
+  if (current.reported_by === seat) return send(res, 409, { error: "That side already sent a report for this table" });
+  const matches =
+    current.outcome === checked.value.outcome &&
+    current.loyalist_vp === checked.value.loyalist_vp &&
+    current.traitor_vp === checked.value.traitor_vp;
+  if (matches) {
+    const agreed = model.validateResult(
+      { ...current, confirmation: "confirmed", confirmed_by: "opponent" },
+      current,
+      ctx
+    );
+    if (!agreed.ok) return send(res, 409, { error: agreed.error });
+    agreed.value.result_id = current.result_id;
+    list[idx] = agreed.value;
+    writeJsonFile("results.json", list);
+    return send(res, 200, { ok: true, status: "confirmed" });
+  }
+  const flagged = model.validateResult({ ...current, confirmation: "disputed", confirmed_by: null }, current, ctx);
+  if (!flagged.ok) return send(res, 409, { error: flagged.error });
+  flagged.value.result_id = current.result_id;
+  flagged.value.counter_loyalist_vp = checked.value.loyalist_vp;
+  flagged.value.counter_traitor_vp = checked.value.traitor_vp;
+  flagged.value.counter_outcome = checked.value.outcome;
+  flagged.value.counter_note = checked.value.note;
+  flagged.value.counter_reported_by = seat;
+  list[idx] = flagged.value;
+  writeJsonFile("results.json", list);
+  return send(res, 200, { ok: true, status: "disputed" });
+}
+
 async function handlePublic(req, res, parts, method) {
   if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
   const collection = parts[1];
@@ -1997,6 +2173,7 @@ async function handleApi(req, res, pathname) {
   if (parts[0] === "rounds") return handleRounds(req, res, method, parts[1]);
   if (parts[0] === "pairings") return handlePairings(req, res, method, parts[1]);
   if (parts[0] === "results") return handleEventResults(req, res, method, parts[1], parts[2]);
+  if (parts[0] === "report" && parts.length === 1) return handleReport(req, res, method);
   if (parts[0] === "control") return handleControl(req, res, method);
 
   if (parts[0] === "games" && method === "POST" && parts[2] === "confirm") {
