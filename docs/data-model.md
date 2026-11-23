@@ -67,6 +67,7 @@ Writes need the event admin. Visitors can read the public shapes.
 - `GET /api/projector` is the hall display. `GET` / `POST /api/theme` reads or sets the site style. The post needs the admin and the CSRF check.
 - `GET /api/standings` for the public scoreboard and Best General tables
 - `GET /api/narrative` for the public log. `POST /api/narrative` saves an organiser recap and needs the admin and the CSRF check.
+- `GET /api/admin/backup` downloads the event bundle, including the map image when one is stored. `POST /api/admin/restore` replaces the event files from that bundle. `GET /api/admin/standings.csv` and `GET /api/admin/results.csv` download confirmed public fields only. All four need the admin, and the restore needs the CSRF check. The bundle does not include passwords or sessions.
 - `GET /api/public/event`, `/map`, `/entrants` omit the event code, QR tokens, and the bye flag
 
 The old `/api/systems` and `/api/games` routes still serve the current pages.

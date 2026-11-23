@@ -9,9 +9,25 @@
     }
   }
 
+  function syncFonts(active) {
+    let link = document.getElementById("journal-fonts");
+    if (!active) {
+      if (link) link.remove();
+      return;
+    }
+    if (link) return;
+    link = document.createElement("link");
+    link.id = "journal-fonts";
+    link.rel = "stylesheet";
+    link.href = "css/journal-fonts.css";
+    document.head.appendChild(link);
+  }
+
   function apply(theme) {
-    if (theme === "journal-tactica") document.documentElement.setAttribute("data-theme", "journal-tactica");
+    const active = theme === "journal-tactica";
+    if (active) document.documentElement.setAttribute("data-theme", "journal-tactica");
     else document.documentElement.removeAttribute("data-theme");
+    syncFonts(active);
   }
 
   function resolve(choice) {
@@ -34,6 +50,7 @@
     });
   }
 
+  apply(resolve(chosen()));
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
   else mount();
 })();
