@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en" data-site-theme="">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Weekend Event – Projector</title>
+  <script>
+    (function () {
+      try {
+        var site = document.documentElement.getAttribute("data-site-theme") || "current";
+        var choice = localStorage.getItem("wem_theme") || "site";
+        var theme = choice === "site" ? site : choice;
+        if (theme === "journal-tactica") document.documentElement.setAttribute("data-theme", "journal-tactica");
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="css/site-nav.css" />
+  <link rel="stylesheet" href="css/journal-tactica.css" />
+  <link rel="stylesheet" href="css/area-map.css" />
+  <link rel="stylesheet" href="css/projector.css" />
+</head>
+<body class="projector">
+  <header>
+    <h1 id="title">Weekend Event</h1>
+    <p class="round" id="round"></p>
+  </header>
+  <div class="stage">
+    <section class="map-panel">
+      <div class="map-frame">
+        <svg id="board" viewBox="0 0 800 560" role="img" aria-label="Area map">
+          <g id="routes"></g>
+          <g id="areas"></g>
+          <g id="labels"></g>
+        </svg>
+        <p class="ai-mark">Built with Abominable Intelligence</p>
+      </div>
+      <div class="bar" id="bar" aria-label="Area control"></div>
+    </section>
+    <section class="side">
+      <div class="generals" id="generals"></div>
+      <section class="highlights">
+        <h2>Recent</h2>
+        <ol id="highlights"></ol>
+      </section>
+    </section>
+  </div>
+  <footer>
+    <span id="leader"></span>
+    <span>Confirmed games only</span>
+  </footer>
+  <script src="js/projector.js"></script>
+</body>
+</html>

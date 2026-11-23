@@ -134,6 +134,7 @@ const PUBLIC_PAGES = new Set([
   "report.html",
   "standings.html",
   "narrative.html",
+  "projector.html",
   "systems.html",
   "games.html"
 ]);
@@ -855,7 +856,8 @@ function serveStatic(req, res, pathname) {
   const ext = path.extname(fp).toLowerCase();
   const type = PUBLIC_TYPES[ext] || "application/octet-stream";
   if (ext === ".html") {
-    const html = versionAssetUrls(fs.readFileSync(fp, "utf8"));
+    const theme = siteTheme();
+    const html = versionAssetUrls(fs.readFileSync(fp, "utf8")).replace('data-site-theme=""', 'data-site-theme="' + theme + '"');
     res.writeHead(200, {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
@@ -1272,8 +1274,7 @@ function eventContext() {
     players: readList("players.json"),
     rounds: readList("rounds.json"),
     pairings: readList("pairings.json"),
-    results: readList("results.json"),
-    control: readList("control.json")
+    results: readList("results.json")
   };
 }
 
@@ -2030,23 +2031,87 @@ async function handleNarrative(req, res, method) {
   return send(res, 200, { round_id: roundId, blurb: blurb.value });
 }
 
+function siteTheme() {
+  const event = readJsonFile("event.json", null);
+  return event && event.theme === "journal-tactica" ? "journal-tactica" : "current";
+}
+
 async function handleControl(req, res, method) {
-  const list = readList("control.json");
-  if (method === "GET") return send(res, 200, scoring.scoreState(scoringInput()).control);
-  if (method !== "POST") return send(res, 405, { error: "Method not allowed" });
+  if (method !== "GET") return send(res, 405, { error: "Area control is calculated from confirmed results" });
+  return send(res, 200, scoring.scoreState(scoringInput()).control);
+}
+
+async function handleTheme(req, res, method) {
+  if (method === "GET") return send(res, 200, { theme: siteTheme() });
+  if (method !== "POST" && method !== "PUT") return send(res, 405, { error: "Method not allowed" });
   const gate = requireAdmin(req);
   if (!gate.ok) return send(res, gate.status, { error: gate.error });
   const body = (await readBody(req)) || {};
-  const ctx = eventContext();
-  const checked = model.validateControl(body, ctx);
-  if (!checked.ok) return send(res, 400, { error: checked.error });
-  const idx = list.findIndex(
-    (row) => Number(row.round_id) === checked.value.round_id && Number(row.area_id) === checked.value.area_id
-  );
-  if (idx >= 0) list[idx] = checked.value;
-  else list.push(checked.value);
-  writeJsonFile("control.json", list);
-  return send(res, idx >= 0 ? 200 : 201, checked.value);
+  if (body.theme !== "current" && body.theme !== "journal-tactica") {
+    return send(res, 400, { error: "Theme must be current or journal-tactica" });
+  }
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  event.theme = body.theme;
+  writeJsonFile("event.json", event);
+  return send(res, 200, { theme: event.theme });
+}
+
+function projectorPayload() {
+  const event = readJsonFile("event.json", null) || ensureEvent();
+  const scored = scoring.scoreState(scoringInput());
+  const map = readMapFile();
+  const rounds = scored.log || [];
+  const current = rounds.length ? rounds[rounds.length - 1].number : Number(event.current_round) || 0;
+  const highlights = [];
+  rounds.slice().reverse().forEach((round) => {
+    if (round.blurb) highlights.push("Round " + round.number + ": " + round.blurb);
+    (round.battles || []).forEach((battle) => {
+      const left = battle.loyalist ? battle.loyalist.display_name : "Loyalist";
+      const right = battle.traitor ? battle.traitor.display_name : "Traitor";
+      const kind = battle.kind === "apex" ? "Apex" : "Grudge";
+      highlights.push("Round " + round.number + " " + kind + ": " + left + " " + battle.loyalist_vp + "–" + battle.traitor_vp + " " + right);
+    });
+    (round.notes || []).forEach((note) => highlights.push(note.display_name + ": " + note.note));
+    (round.areas || []).forEach((area) => {
+      if (area.controller !== area.previous && area.controller !== "neutral") {
+        highlights.push(area.name + " taken by " + area.controller);
+      }
+    });
+  });
+  const areas = (map.areas || []).map((area) => ({
+    area_id: area.area_id,
+    name: area.name,
+    shape: area.shape,
+    points: area.points,
+    x: area.x,
+    y: area.y,
+    routes: area.routes || [],
+    controller: model.currentAreaController(area.area_id, scored.control, readList("rounds.json"))
+  }));
+  const neutral = areas.filter((area) => area.controller !== "Loyalist" && area.controller !== "Traitor").length;
+  return {
+    event_name: event.name,
+    current_round: current,
+    complete: scored.complete,
+    leader: scored.leader,
+    factions: {
+      Loyalist: scored.factions.Loyalist,
+      Traitor: scored.factions.Traitor,
+      neutral: { areas: neutral }
+    },
+    best: {
+      loyalist: scored.loyalists[0] || null,
+      traitor: scored.traitors[0] || null
+    },
+    highlights: highlights.slice(0, 8),
+    image: map.image ? { file: map.image.file, width: map.image.width, height: map.image.height, url: "/api/map/image" } : null,
+    areas
+  };
+}
+
+async function handleProjector(req, res, method) {
+  if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+  return send(res, 200, projectorPayload());
 }
 
 function publicResultView(result) {
@@ -2232,6 +2297,8 @@ async function handleApi(req, res, pathname) {
   if (parts[0] === "results") return handleEventResults(req, res, method, parts[1], parts[2]);
   if (parts[0] === "report" && parts.length === 1) return handleReport(req, res, method);
   if (parts[0] === "control") return handleControl(req, res, method);
+  if (parts[0] === "theme" && parts.length === 1) return handleTheme(req, res, method);
+  if (parts[0] === "projector" && parts.length === 1) return handleProjector(req, res, method);
   if (parts[0] === "standings" && parts.length === 1) return handleStandings(req, res, method);
   if (parts[0] === "narrative" && parts.length === 1) return handleNarrative(req, res, method);
 
@@ -2299,6 +2366,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname.startsWith("/api/")) {
       await handleApi(req, res, pathname);
+      return;
+    }
+    if (pathname === "/projector") {
+      serveStatic(req, res, "/projector.html");
       return;
     }
     if (pathname === "/print/qr-sheet" || pathname.startsWith("/print/round/")) {

@@ -250,6 +250,14 @@
     });
   }
 
+  async function saveTheme(theme) {
+    await probe();
+    return request("/api/theme", {
+      method: "POST",
+      body: JSON.stringify({ theme: theme })
+    });
+  }
+
   async function saveNarrative(roundId, blurb) {
     await probe();
     return request("/api/narrative", {
@@ -382,6 +390,7 @@
     roundAction,
     resultAction,
     saveNarrative,
+    saveTheme,
     confirmGame: (id, as) => postAction("/api/games/" + encodeURIComponent(id) + "/confirm", { as: as || "admin" }),
     disputeGame: (id, note) => postAction("/api/games/" + encodeURIComponent(id) + "/dispute", { note: note || "" }),
     voidGame: (id) => postAction("/api/games/" + encodeURIComponent(id) + "/void", {}),

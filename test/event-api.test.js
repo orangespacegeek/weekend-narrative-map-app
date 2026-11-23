@@ -264,33 +264,14 @@ test("admin CRUD covers entrants, locked matches, results, and area control", as
     assert.equal(outline.status, 201, JSON.stringify(outline.json));
     assert.deepEqual(outline.json.tables, ["12", "13"]);
 
-    const control = await send(ctx.base, headers, "POST", "/api/control", {
+    const retired = await send(ctx.base, headers, "POST", "/api/control", {
       round_id: round.round_id,
       area_id: 1,
       loyalist_points: 3,
       traitor_points: 0,
       previous_controller: "neutral"
     });
-    assert.equal(control.status, 201, JSON.stringify(control.json));
-    assert.equal(control.json.controller, "Loyalist");
-    const round2 = (await send(ctx.base, headers, "POST", "/api/rounds", { number: 2 })).json;
-    const taken = await send(ctx.base, headers, "POST", "/api/control", {
-      round_id: round2.round_id,
-      area_id: 1,
-      loyalist_points: 0,
-      traitor_points: 3
-    });
-    assert.equal(taken.status, 201, JSON.stringify(taken.json));
-    assert.equal(taken.json.controller, "Traitor");
-    assert.equal(taken.json.previous_controller, "Loyalist");
-    const tied = await send(ctx.base, headers, "POST", "/api/control", {
-      round_id: round2.round_id,
-      area_id: 1,
-      loyalist_points: 1,
-      traitor_points: 1,
-      controller: "Traitor"
-    });
-    assert.equal(tied.status, 400);
+    assert.equal(retired.status, 405);
   } finally {
     await ctx.stop();
     fs.rmSync(dataDir, { recursive: true, force: true });

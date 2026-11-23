@@ -1,12 +1,24 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-site-theme="">
 <head>
+  <script>
+    (function () {
+      try {
+        var site = document.documentElement.getAttribute("data-site-theme") || "current";
+        var choice = localStorage.getItem("wem_theme") || "site";
+        var theme = choice === "site" ? site : choice;
+        if (theme === "journal-tactica") document.documentElement.setAttribute("data-theme", "journal-tactica");
+      } catch (e) {}
+    })();
+  </script>
+  
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0e0e18" />
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <title>Weekend Event – Edit map</title>
   <link rel="stylesheet" href="css/site-nav.css" />
+  <link rel="stylesheet" href="css/journal-tactica.css" />
   <link rel="stylesheet" href="css/area-map.css" />
 </head>
 <body>
@@ -81,6 +93,7 @@
       </div>
     </div>
   </div>
+  <script src="js/theme.js"></script>
   <script src="js/api.js"></script>
   <script src="js/zone-editor.js"></script>
   <script>SH.applyNavPermissions();</script>
