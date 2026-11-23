@@ -11,7 +11,7 @@ Scoring and area control are fixed. Standings, the map, and the narrative log ar
 - 4 or 5 rounds. Every game is Loyalist against Traitor.
 - Campaign points: win 3, tie 1, loss 0. A bye is a win worth at least 10 VP for the player who sits out.
 - No rematches anywhere. A normal, Apex, or Grudge pairing is rejected when those two entrants have already played each other. An entrant also cannot sit in two matches in the same round. Apex and Grudge matches stay locked. A dropped entrant is left out of later pairings; their earlier matches stay.
-- Swiss pairing keeps the locked Apex and Grudge matches and pairs the rest Loyalist against Traitor, closest rank first. Rank is campaign points, then VP difference, then strength of schedule. A fully tied pair is ordered by entrant id, or by a seed when one is supplied. If the sides are unequal, the larger side gives byes until the counts match. A bye goes to the lowest-ranked player on that side who has not had one; it is a win worth at least 10 VP. If no rematch-free pairing exists, the round is left unchanged and the organiser is told. Draft pairings stay off the public list until the organiser approves and publishes them.
+- Swiss pairing keeps the locked Apex and Grudge matches and pairs the rest Loyalist against Traitor, closest rank first. Rank is campaign points, then VP difference, then strength of schedule. A fully tied pair is ordered by entrant id, or by a seed when one is supplied. Dropped entrants are skipped. Stand-in entrants are not counted in either side. If the real sides are unequal, each extra player on the larger side is paired with a TO stand-in on the smaller side. That match is a normal game: it gets a table, area, and scenario, and the player reports it on the phone form. An existing `is_stand_in` entrant on the smaller side is used first, unless that pairing would be a rematch, in which case a new stand-in slot is created. New slots are named `TO Stand-in`, then `TO Stand-in 2`, and are reused in later rounds. The stand-in game goes to the lowest-ranked eligible player on the larger side who has not played a stand-in yet. If everyone there already has, the lowest-ranked player plays another and the response carries a warning. The game counts for that player's campaign points, VP difference, and strength of schedule, and for the round's area control and the faction totals. The stand-in entrant is left out of Best General. A bye is used only when the organiser assigns one in review. A bye still has no table, and its result of at least 10 VP is written when the round is published. The no-rematch rule stays strict for every real-player pairing, including Apex and Grudge. If no rematch-free pairing exists, the round is left unchanged and the organiser is told. Draft pairings stay off the public list until the organiser approves and publishes them.
 - An army name cannot contain an email address or a phone number.
 - Pairings and rounds move draft, then approved, then published. A record cannot be published straight from draft.
 - Area control is decided each round from the campaign points scored in that area in that round. The side with more points takes it. A tie keeps the previous holder, or stays neutral if nobody held it. Earlier rounds are not added in. The history of each round is kept for the narrative log.
@@ -24,7 +24,7 @@ Scoring and area control are fixed. Standings, the map, and the narrative log ar
 | --- | --- |
 | `event.json` | Name, blurb, code, 4 or 5 rounds, scoring, tiebreak order, site theme |
 | `map.json` | Optional image file name, and the areas |
-| `players.json` | Entrants: display name, faction, optional army, `dropped`, `bye` |
+| `players.json` | Entrants: display name, faction, optional army, `dropped`, `bye`, `is_stand_in` |
 | `rounds.json` | Round number, state, QR token |
 | `pairings.json` | Table, area, kind, locked, state, the two entrants |
 | `results.json` | VP, outcome, confirmation, campaign points |
@@ -37,7 +37,7 @@ An area has `area_id`, `name`, `shape` (`point` or `outline`), `points`, `x`, `y
 
 The event admin uploads a PNG or JPEG to `POST /api/map/image`. The bytes are stored under `DATA_DIR/maps/` as `event-map.png` or `event-map.jpg`, and `map.json` records that file name plus the pixel size. Visitors load the picture from `GET /api/map/image`. `PUT /api/map` can replace the area list in one save. Both writes are admin-only and run the same area checks.
 
-An entrant has a display name, a faction, and an optional `army` (the legion or army name, free text). `army` is public, next to the display name and faction. There is no contact field, real name, email, or Discord id. `dropped` takes them out of later pairings. `bye` is the organiser's flag that this entrant should receive a bye when the round is built. The public entrant list omits that flag.
+An entrant has a display name, a faction, and an optional `army` (the legion or army name, free text). `army` is public, next to the display name and faction. There is no contact field, real name, email, or Discord id. `dropped` takes them out of later pairings. `is_stand_in` marks a TO stand-in. The organiser can set it on the roster, and the public roster shows a TO Stand-in badge. `bye` is stored for the organiser and is omitted from the public list. It does not by itself create a pairing. A bye exists only when the organiser assigns a pairing with `kind: bye` in review.
 
 A pairing `kind` is `normal`, `apex`, `grudge`, or `bye`. Apex and grudge are always `locked`. A bye names one entrant and has no table. Any other pairing names one Loyalist and one Traitor. `state` is `draft`, `approved`, or `published`. Visitors only receive published pairings. Generating again drops this round's unlocked drafts, including byes, before the engine runs, and leaves locked Apex and Grudge matches in place.
 
@@ -68,6 +68,6 @@ Writes need the event admin. Visitors can read the public shapes.
 - `GET /api/standings` for the public scoreboard and Best General tables
 - `GET /api/narrative` for the public log. `POST /api/narrative` saves an organiser recap and needs the admin and the CSRF check.
 - `GET /api/admin/backup` downloads the event bundle, including the map image when one is stored. `POST /api/admin/restore` replaces the event files from that bundle. `GET /api/admin/standings.csv` and `GET /api/admin/results.csv` download confirmed public fields only. All four need the admin, and the restore needs the CSRF check. The bundle does not include passwords or sessions.
-- `GET /api/public/event`, `/map`, `/entrants` omit the event code, QR tokens, and the bye flag
+- `GET /api/public/event`, `/map`, `/entrants` omit the event code, QR tokens, and the bye flag. Public entrants include `is_stand_in`
 
 The old `/api/systems` and `/api/games` routes still serve the current pages.

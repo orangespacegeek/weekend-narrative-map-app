@@ -1697,6 +1697,21 @@ async function handleGenerateRound(req, res, method, idPart) {
     seed: body.seed
   });
   if (!generated.ok) return send(res, 409, { error: generated.error, warnings: generated.warnings || [] });
+  if (generated.createdPlayers && generated.createdPlayers.length) {
+    const players = readList("players.json");
+    generated.createdPlayers.forEach((player) => {
+      players.push({
+        player_id: player.player_id,
+        display_name: player.display_name,
+        faction: player.faction,
+        army: null,
+        dropped: false,
+        bye: false,
+        is_stand_in: true
+      });
+    });
+    writeJsonFile("players.json", players);
+  }
   const made = [];
   generated.byes.forEach((player) => {
     const pairing = {

@@ -24,4 +24,8 @@ test("Journal Tactica fonts load only while that theme is active", () => {
   const active = script.slice(script.indexOf("function syncFonts"));
   assert.match(active, /if \(!active\)/);
   assert.match(active, /journal-fonts\.css/);
+  const projector = fs.readFileSync(path.join(ROOT, "projector.html"), "utf8");
+  assert.match(projector, /js\/theme\.js/);
+  assert.ok(projector.indexOf("js/theme.js") < projector.indexOf("js/projector.js"));
+  assert.equal(projector.includes("journal-fonts.css"), false);
 });

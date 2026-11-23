@@ -7,6 +7,8 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
+const backup = require("../lib/backup");
+
 const ROOT = path.join(__dirname, "..");
 const ADMIN_PW = "test-admin-pw-123";
 const PNG = Buffer.from(
@@ -77,6 +79,26 @@ async function login(base) {
     headers: { Authorization: "Bearer " + json.token, "Content-Type": "application/json", "X-SH-Request": "1" }
   };
 }
+
+test("csv cells escape a leading tab or carriage return", () => {
+  const csv = backup.standingsCsv({
+    loyalists: [{
+      rank: 1,
+      display_name: "\t=cmd",
+      army: "\rfoo",
+      wins: 0,
+      losses: 0,
+      ties: 0,
+      campaign_points: 0,
+      vp_diff: 0,
+      strength_of_schedule: 0
+    }],
+    traitors: []
+  });
+  assert.match(csv, /'\t=cmd/);
+  assert.match(csv, /"'\rfoo"/);
+  assert.equal(csv.startsWith("="), false);
+});
 
 test("backup, csv export, and restore stay behind the admin and CSRF checks", async () => {
   const ctx = startServer();
@@ -154,6 +176,27 @@ test("a backup round-trips, and a bad restore leaves the event alone", async () 
     const still = await (await fetch(ctx.base + "/api/players", { headers })).json();
     assert.equal(still[0].display_name, "L-99");
     assert.equal(fs.readFileSync(path.join(ctx.dataDir, "maps", "event-map.png")).equals(PNG), true);
+
+    const malformed = [
+      ["entrants", (bundle) => { bundle.files["players.json"] = [null]; }],
+      ["rounds", (bundle) => { bundle.files["rounds.json"] = [{ round_id: "nope" }]; }],
+      ["pairings", (bundle) => { bundle.files["pairings.json"] = ["x"]; }],
+      ["results", (bundle) => { bundle.files["results.json"] = [1]; }],
+      ["areas", (bundle) => { bundle.files["map.json"].areas = [null]; }]
+    ];
+    for (const [label, mutate] of malformed) {
+      const bundle = JSON.parse(JSON.stringify(saved));
+      mutate(bundle);
+      const rejected = await fetch(ctx.base + "/api/admin/restore", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(bundle)
+      });
+      assert.equal(rejected.status, 400, label);
+      const unchanged = await (await fetch(ctx.base + "/api/players", { headers })).json();
+      assert.equal(unchanged[0].display_name, "L-99", label);
+      assert.equal(fs.readFileSync(path.join(ctx.dataDir, "maps", "event-map.png")).equals(PNG), true, label);
+    }
 
     const restored = await fetch(ctx.base + "/api/admin/restore", {
       method: "POST", headers,

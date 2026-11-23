@@ -148,9 +148,31 @@ test("table assignment, the print sheet, and the QR stay unpublished until the o
     const body = await generated.json();
     assert.equal(generated.status, 200, JSON.stringify(body));
     const games = body.pairings.filter((pairing) => pairing.kind !== "bye");
-    const bye = body.pairings.find((pairing) => pairing.kind === "bye");
-    assert.equal(games.length, 2);
-    assert.deepEqual(games.map((pairing) => pairing.table).sort(), ["1", "2"]);
+    assert.equal(body.pairings.some((pairing) => pairing.kind === "bye"), false);
+    assert.equal(games.length, 3);
+    assert.equal(games.every((pairing) => pairing.table && pairing.area_id), true);
+    const roster = await (await fetch(ctx.base + "/api/players", { headers })).json();
+    const standIn = roster.find((player) => player.is_stand_in);
+    assert.equal(standIn.display_name, "TO Stand-in");
+    const standInGame = games.find((pairing) => Number(pairing.traitor_id) === Number(standIn.player_id));
+    assert.ok(standInGame.table);
+    const round2 = await (await fetch(ctx.base + "/api/rounds", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ number: 2 })
+    })).json();
+    const byeResponse = await fetch(ctx.base + "/api/pairings", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        round_id: round2.round_id,
+        kind: "bye",
+        loyalist_id: roster.find((player) => player.display_name === "L-03").player_id,
+        traitor_id: null
+      })
+    });
+    const bye = await byeResponse.json();
+    assert.equal(byeResponse.status, 201, JSON.stringify(bye));
     assert.equal(bye.table, null);
     assert.equal(bye.area_id, null);
     const hiddenSheet = await fetch(ctx.base + "/api/rounds/" + round.round_id + "/sheet");
@@ -208,12 +230,11 @@ test("table assignment, the print sheet, and the QR stay unpublished until the o
     const sheet = await sheetRes.json();
     assert.equal(sheetRes.status, 200);
     assert.equal(sheet.round.number, 1);
-    assert.deepEqual(sheet.by_player.map((row) => row.display_name), ["L-01", "L-02", "L-03", "T-01", "T-02"]);
+    assert.deepEqual(sheet.by_player.map((row) => row.display_name), ["L-01", "L-02", "L-03", "T-01", "T-02", "TO Stand-in"]);
     assert.equal(sheet.by_table.every((row) => row.area === "Crossing" || row.area), true);
     assert.ok(sheet.by_table.some((row) => row.scenario === "Breach"));
     assert.ok(sheet.by_table.some((row) => row.loyalist.army === "Iron Hands" || row.traitor.army === "Night Lords"));
-    assert.equal(sheet.byes.length, 1);
-    assert.equal(sheet.byes[0].table, undefined);
+    assert.equal(sheet.byes.length, 0);
     assert.ok(sheet.warnings.some((line) => line.includes("Table 1")));
     const dumped = JSON.stringify(sheet);
     assert.equal(dumped.includes(event.event_code), false);
