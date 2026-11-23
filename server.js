@@ -1760,12 +1760,10 @@ async function handleRoundSheet(req, res, method, idPart) {
 
 async function handleRoundQr(req, res, method, idPart) {
   if (method !== "GET") return send(res, 405, { error: "Method not allowed" });
+  const gate = requireAdmin(req);
+  if (!gate.ok) return send(res, gate.status, { error: gate.error });
   const round = readList("rounds.json").find((row) => String(row.round_id) === String(idPart));
   if (!round) return send(res, 404, { error: "Round not found" });
-  const gate = requireAdmin(req);
-  if (!gate.ok && !roundIsPublic(roundPairings(round.round_id))) {
-    return send(res, 404, { error: "Pairings are not published yet" });
-  }
   const image = roundQr(req, round);
   let download = false;
   try {
@@ -1790,13 +1788,22 @@ async function handlePrint(req, res, pathname) {
       .map((round) => ({ round_id: round.round_id, number: round.number, svg: roundQr(req, round).svg }));
     return sendHtml(res, 200, printPages.renderQrSheet(event.name, cards));
   }
-  const number = pathname.slice("/print/round/".length);
+  const organiser = pathname.endsWith("/organiser");
+  const number = pathname.slice("/print/round/".length).replace(/\/organiser$/, "");
+  if (!/^[1-9]\d*$/.test(number)) {
+    return sendHtml(res, 404, "<!DOCTYPE html><html><body><p>Round not found.</p></body></html>");
+  }
+  if (organiser) {
+    const gate = requireAdmin(req);
+    if (!gate.ok) return sendHtml(res, gate.status, "<!DOCTYPE html><html><body><p>Login required</p></body></html>");
+  }
   const round = readList("rounds.json").find((row) => String(row.number) === String(number));
   if (!round || !roundIsPublic(roundPairings(round.round_id))) {
     return sendHtml(res, 404, "<!DOCTYPE html><html><body><p>Pairings are not published yet.</p></body></html>");
   }
   const sheet = sheetFor(round);
-  return sendHtml(res, 200, printPages.renderRoundPage(sheet, roundQr(req, round).svg));
+  const markup = organiser ? roundQr(req, round).svg : "";
+  return sendHtml(res, 200, printPages.renderRoundPage(sheet, markup));
 }
 
 async function handlePairings(req, res, method, idPart) {

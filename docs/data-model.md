@@ -16,7 +16,7 @@ Scoring and area control are fixed. A later PR calculates standings. This store 
 - Pairings and rounds move draft, then approved, then published. A record cannot be published straight from draft.
 - Area control is decided each round from the campaign points scored in that area in that round. The side with more points takes it. A tie keeps the previous holder, or stays neutral if nobody held it. Earlier rounds are not added in. The history of each round is kept for the narrative log.
 - The faction winner is the side holding the most areas at the end. If both sides hold the same number, the side with more total campaign points wins. If that is also equal, the event is tied. Best general is the top Loyalist and the top Traitor, ordered by campaign points, then VP difference, then strength of schedule.
-- Each event has an `event_code`. Each round has a `qr_token`. Both stay off public JSON. The printed QR for a round encodes the event code and the round number into `/report.html`. The phone form itself is a later PR. `qr_token` is not in that URL.
+- Each event has an `event_code`. Each round has a `qr_token`. Neither appears in a public response. The organiser's QR encodes the event code and the round number into `/report.html`, and only an admin can fetch that picture or the QR sheet. The public pairing sheet has no QR. The phone form itself is a later PR. `qr_token` is not in that URL.
 
 ## Files
 
@@ -58,8 +58,8 @@ Writes need the event admin. Visitors can read the public shapes.
 - `GET` / `POST /api/players`, `PUT` / `DELETE /api/players/:id`
 - `GET` / `POST /api/rounds`, `PUT` / `DELETE /api/rounds/:id`
 - `GET /api/rounds/:id/sheet` for a published round's print data
-- `GET /api/rounds/:id/qr.svg` for that round's QR. Visitors get it only after the round is published. `?download=1` sends it as a file
-- `GET /print/round/:number` is the paper pairing sheet. `GET /print/qr-sheet` is the admin QR sheet
+- `GET /api/rounds/:id/qr.svg` is the admin QR for that round. `?download=1` sends it as a file. Visitors are refused.
+- `GET /print/round/:number` is the public paper pairing sheet, with no QR. `GET /print/round/:number/organiser` is the same sheet with the QR, and it requires the admin. `GET /print/qr-sheet` is the admin QR sheet.
 - `GET` / `POST /api/pairings`, `PUT` / `DELETE /api/pairings/:id`
 - `GET` / `POST /api/results`, `PUT` / `DELETE /api/results/:id`, `POST /api/results/:id/confirm`, `POST /api/results/:id/dispute`
 - `GET` / `POST /api/control`

@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { assignTables } = require("../lib/tables");
-const { resultsFormUrl } = require("../lib/qr");
+const { resultsFormUrl, qrSvg } = require("../lib/qr");
 
 const ROOT = path.join(__dirname, "..");
 const ADMIN_PW = "test-admin-pw-123";
@@ -38,6 +38,10 @@ test("tables follow the map, and a bye is left without one", () => {
 test("the results QR url is the event code plus the round", () => {
   const url = resultsFormUrl("http://127.0.0.1:9", "ABCD2345", 2);
   assert.equal(url, "http://127.0.0.1:9/report.html?event=ABCD2345&round=2");
+  const svg = qrSvg(url);
+  assert.match(svg, /<desc>Round results code<\/desc>/);
+  assert.equal(svg.includes("ABCD2345"), false);
+  assert.equal(svg.includes("report.html"), false);
 });
 
 function startServer() {
@@ -155,14 +159,13 @@ test("table assignment, the print sheet, and the QR stay unpublished until the o
     assert.equal(hiddenPrint.status, 404);
     assert.equal((await hiddenPrint.text()).includes("event="), false);
     const hiddenQr = await fetch(ctx.base + "/api/rounds/" + round.round_id + "/qr.svg");
-    assert.equal(hiddenQr.status, 404);
+    assert.equal(hiddenQr.status, 401);
     const adminQr = await fetch(ctx.base + "/api/rounds/" + round.round_id + "/qr.svg", { headers });
     assert.equal(adminQr.status, 200);
     const event = await (await fetch(ctx.base + "/api/event", { headers })).json();
     const qrText = await adminQr.text();
-    assert.match(qrText, /report\.html\?event=/);
-    assert.match(qrText, new RegExp("event=" + event.event_code));
-    assert.match(qrText, /round=1/);
+    assert.match(qrText, /<desc>Round results code<\/desc>/);
+    assert.equal(qrText.includes(event.event_code), false);
     assert.equal(JSON.stringify(event).includes(event.event_code), true);
 
     const moved = games.find((pairing) => pairing.table === "2");
@@ -222,18 +225,88 @@ test("table assignment, the print sheet, and the QR stay unpublished until the o
     assert.match(printed, /Iron Hands/);
     assert.match(printed, /L-01/);
     assert.match(printed, /Breach/);
-    assert.match(printed, new RegExp("event=" + event.event_code));
+    assert.equal(printed.includes(event.event_code), false);
+    assert.equal(printed.includes("<svg"), false);
     assert.equal(printed.includes("site-nav"), false);
     assert.match(printed, /@page/);
     const publicQr = await fetch(ctx.base + "/api/rounds/" + round.round_id + "/qr.svg");
-    assert.equal(publicQr.status, 200);
-    assert.match(publicQr.headers.get("content-type") || "", /svg/);
+    assert.equal(publicQr.status, 401);
+    assert.equal((await publicQr.text()).includes(event.event_code), false);
+    const organiserDenied = await fetch(ctx.base + "/print/round/1/organiser");
+    assert.equal(organiserDenied.status, 401);
+    const organiser = await fetch(ctx.base + "/print/round/1/organiser", { headers: { Authorization: "Bearer " + auth.token } });
+    const organiserHtml = await organiser.text();
+    assert.equal(organiser.status, 200);
+    assert.match(organiserHtml, /<svg/);
+    assert.match(organiserHtml, /By table/);
+    assert.equal(organiserHtml.includes(event.event_code), false);
     const sheetPage = await fetch(ctx.base + "/print/qr-sheet");
     assert.equal(sheetPage.status, 401);
+    assert.equal((await sheetPage.text()).includes(event.event_code), false);
     const adminSheet = await fetch(ctx.base + "/print/qr-sheet", { headers: { Authorization: "Bearer " + auth.token } });
     assert.equal(adminSheet.status, 200);
     assert.match(await adminSheet.text(), /Round 1/);
+    await assertVisitorCannotSeeCode(ctx.base, event.event_code, round);
   } finally {
     await ctx.stop();
   }
 });
+
+async function assertVisitorCannotSeeCode(base, code, round) {
+  const pages = fs.readdirSync(ROOT).filter((name) => name.endsWith(".html") || name.endsWith(".svg"));
+  const assets = [];
+  ["js", "css"].forEach((dir) => {
+    fs.readdirSync(path.join(ROOT, dir)).forEach((name) => assets.push("/" + dir + "/" + name));
+  });
+  const paths = [
+    "/",
+    "/health",
+    "/api/health",
+    ...pages.map((name) => "/" + name),
+    ...assets,
+    "/api/public/counts",
+    "/api/public/meta",
+    "/api/public/systems",
+    "/api/public/games",
+    "/api/public/entrants",
+    "/api/public/event",
+    "/api/public/map",
+    "/api/event",
+    "/api/map",
+    "/api/map/image",
+    "/api/areas",
+    "/api/rounds",
+    "/api/rounds/" + round.round_id,
+    "/api/rounds/" + round.round_id + "/sheet",
+    "/api/rounds/" + round.round_id + "/qr.svg",
+    "/api/rounds/" + round.round_id + "/qr.svg?download=1",
+    "/api/pairings",
+    "/api/results",
+    "/api/control",
+    "/api/systems",
+    "/api/games",
+    "/api/meta",
+    "/api/players",
+    "/api/auth/me",
+    "/print/round/" + round.number,
+    "/print/round/" + round.number + "/organiser",
+    "/print/qr-sheet",
+    "/report.html?event=" + encodeURIComponent(code) + "&round=" + round.number
+  ];
+  const areas = await (await fetch(base + "/api/areas")).json();
+  areas.forEach((area) => paths.push("/api/areas/" + area.area_id));
+  const pairings = await (await fetch(base + "/api/pairings")).json();
+  pairings.forEach((pairing) => paths.push("/api/pairings/" + pairing.pairing_id));
+  const results = await (await fetch(base + "/api/results")).json();
+  results.forEach((result) => paths.push("/api/results/" + result.result_id));
+  const systems = await (await fetch(base + "/api/systems")).json();
+  systems.forEach((system) => paths.push("/api/systems/" + system.sys_id));
+  const games = await (await fetch(base + "/api/games")).json();
+  games.forEach((game) => paths.push("/api/games/" + game.game_id));
+
+  for (const route of paths) {
+    const res = await fetch(base + route);
+    const text = await res.text();
+    assert.equal(text.includes(code), false, route + " leaked the event code");
+  }
+}

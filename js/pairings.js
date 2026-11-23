@@ -195,7 +195,8 @@
       return;
     }
     link.hidden = false;
-    link.href = "/print/round/" + encodeURIComponent(round.number);
+    const base = "/print/round/" + encodeURIComponent(round.number);
+    link.href = SH.isLoggedIn() ? base + "/organiser" : base;
   }
 
   document.getElementById("generate").addEventListener("click", async () => {

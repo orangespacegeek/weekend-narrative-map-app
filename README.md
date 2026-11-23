@@ -65,7 +65,7 @@ Each later change is its own small PR.
 3. **Area map.** Admin zone editor on an uploaded map image, on top of the node map.
 4. **Registration and roster.** Check-in list, plus Apex and Grudge match entry. No real names committed to the repo.
 5. **Swiss pairing.** Pairing engine and a review step for the organiser.
-6. **Area and table assignment.** Printable pairings and QR codes. Games take tables from the map. `/print/round/:number` is the paper sheet, and `/print/qr-sheet` is the organiser's QR page. The phone form at `report.html` is still a placeholder.
+6. **Area and table assignment.** Printable pairings and QR codes. Games take tables from the map. `/print/round/:number` is the public paper sheet, without a QR. The organiser's copy is `/print/round/:number/organiser`, and `/print/qr-sheet` lists the round codes. The phone form at `report.html` is still a placeholder.
 7. **Phone results.** A player reports a result with an event code and that round's QR code, and the opponent confirms on their phone. No player account.
 8. **Scoring and narrative log.** Standings and a log of what the results did to the story.
 9. **Projector dashboard and theme.** A view for the room, and the event theme.
